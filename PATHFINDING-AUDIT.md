@@ -30,7 +30,7 @@ This pass migrated the useful normal-Anyfinder integration fixes and hardened th
 | Worker budget | `maxTimeMs` existed but was ignored | Monotonic time cap enforced in primary and fallback searches |
 | v14 options | Some paths read legacy top-level fields | History/ignore flags normalized through `constrainOptions` |
 
-Automated Node tests exercise the Worker in open space, around a blocking wall, and against a sealed scene. Static integration tests guard the wrapper signature, lifecycle hooks, stale-result checks, corner-cut prevention, and bootstrap behavior.
+Automated Node tests exercise the Worker in open space, around a blocking wall, against a sealed scene, and around a joined hard corner. Integration tests guard the wrapper signature, lifecycle hooks, stale-result checks, corner-cut prevention, coordinate conversion, Foundry's final collision gate, and bootstrap behavior.
 
 ## Architecture by grid type
 
@@ -93,7 +93,7 @@ The repository ships generated bindings and WASM but no Rust source, Cargo metad
 
 If a token starts inside its configured clearance envelope, the gridless solver projects it to the nearest walkable node, computes from there, then restores the real endpoint. Near-wall “escape” behavior is inherently difficult: strict validation can reject every egress, while relaxed validation can permit crossing a wall. Normal Anyfinder's log records several attempted relaxations that regressed long routes and were rolled back.
 
-This pass now validates the previously omitted start-to-first-waypoint connector. A blocked start is allowed to escape only if the connector does not intersect any physical wall, does not enter another wall's clearance, ends fully clear, and increases sampled distance from every wall initially overlapped. This closes the common “route exists but token sticks on its first segment” case without allowing a cross-wall jump. It remains a sampled heuristic and needs live fixtures on both sides of wall endpoints and at exact wall contact.
+This pass now validates the previously omitted start-to-first-waypoint connector. A blocked start is allowed to escape only if the connector does not intersect any physical wall, does not enter another wall's clearance, ends fully clear, and increases sampled distance from every wall initially overlapped. Gridless requests are now solved entirely in movement-origin coordinates and converted back to Foundry token positions only after solving. The returned route is also checked by Foundry's own movement constraint, closing both the initial-segment and coordinate-offset variants of the “route exists but token sticks” failure.
 
 ### P2 — Duplicate gridless solvers can drift
 

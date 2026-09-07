@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Corrected gridless coordinate handling so Foundry token positions are converted to movement origins before routing and generated nodes are converted back before movement.
+- Added an authoritative final safety gate through Foundry's own movement constraint; a route Foundry would shorten or alter is now rejected instead of leaving the token at a collision point.
+- Kept hard wall corners protected by endpoint exclusion during node search and final segment validation, with a regression fixture for joined right-angle walls.
+- Retired the ineffective minimum-clearance pixel rule from routing and hid its legacy setting.
 - Migrated normal Anyfinder's v14 lifecycle, option-normalization, and fast-drag Worker tolerance fixes.
 - Corrected the five-argument v14 WASM pathfinding call and restored cancellation.
 - Invalidated gridless graphs and Worker results on wall, scene, and clearance-setting changes.

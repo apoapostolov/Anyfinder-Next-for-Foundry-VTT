@@ -19,6 +19,16 @@ function wall(x1, y1, x2, y2) {
   };
 }
 
+function pointToSegmentDistance(point, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (dx === 0 && dy === 0) return Math.hypot(point.x - a.x, point.y - a.y);
+  const t = Math.max(0, Math.min(1,
+    ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy),
+  ));
+  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+}
+
 function payload(overrides = {}) {
   return {
     start: { x: 60, y: 60 },
@@ -132,6 +142,32 @@ test("squeeze never permits the center path to cross a wall", () => {
 
   assert.equal(result.path, null);
   assert.match(result.reason, /no_route|time_cap_hit|iter_cap_hit/);
+});
+
+test("squeeze keeps route segments outside the protected radius of a hard wall corner", () => {
+  const input = payload();
+  input.start = { x: 100, y: 300 };
+  input.waypoints = [{ x: 300, y: 100 }];
+  input.scene.rect = { x: 0, y: 0, width: 400, height: 400 };
+  input.scene.walls = [wall(50, 200, 200, 200), wall(200, 200, 200, 50)];
+  input.token.radiusPx = 50;
+  input.token.cornerExtraPx = Math.hypot(50, 50) - 50;
+  input.settings.gridlessAllowSqueeze = true;
+  input.settings.gridlessNodeStepPx = 10;
+
+  const result = runWorker(input);
+
+  assert.equal(result.reason, null);
+  assert.ok(Array.isArray(result.path));
+  const complete = [input.start, ...result.path];
+  let closest = Infinity;
+  for (let i = 0; i < complete.length - 1; i++) {
+    closest = Math.min(
+      closest,
+      pointToSegmentDistance({ x: 200, y: 200 }, complete[i], complete[i + 1]),
+    );
+  }
+  assert.ok(closest >= 39.5, `route came too close to joined wall corner: ${closest}px`);
 });
 
 test("finds a long route through alternating narrow castle passages", () => {

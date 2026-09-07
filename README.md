@@ -11,6 +11,7 @@ Forked from 7H3LaughingMan's Wayfinder v14 with hex grid awareness built into th
 - **Region support** — respects Foundry v14 Region movement restrictions.
 - **Cancellation tokens** — supports cancelling in-progress pathfinding.
 - **Gridless squeeze routing** — token-relative clearance supports passages down to about 60% of token width while keeping the movement and vision centerline on the legal side of every wall.
+- **Foundry-verified gridless movement** — routes are solved in movement-origin coordinates, converted back to token positions, and rejected if Foundry's own collision constraint would alter them.
 - **Large-map gridless routing** — route-focused Worker graphs, spatial wall indexing, and adaptive fine-resolution retries preserve narrow alleys over long distances.
 
 ## Requirements

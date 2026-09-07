@@ -516,13 +516,11 @@ function solveSegment(payload, data, from0, to0, opt) {
   };
   const settings = payload.settings;
   const allowSqueeze = !!settings.gridlessAllowSqueeze;
-  const minClear = Number(settings.gridlessMinCenterClearancePx) || 0;
   const exactTol = Number(settings.gridlessExactFitTolerancePx) || 0;
   const tokenRadius = Number(payload.token.radiusPx) || 0;
   const cornerExtra = Number(payload.token.cornerExtraPx) || 0;
   const clearance = Math.max(
     1,
-    minClear,
     allowSqueeze ? tokenRadius * SQUEEZE_RADIUS_RATIO : tokenRadius,
   );
   const endpointGuard = Math.max(0, Math.min(cornerExtra, clearance * 0.35));

@@ -19,12 +19,13 @@ The token is approximated as a circle based on its larger scaled pixel dimension
 ```text
 effective clearance = max(
   1 pixel,
-  minimum center clearance,
   token radius × (squeeze enabled ? 0.60 : 1.00)
 )
 ```
 
-Squeeze is enabled by default. A clearance of 60% of the radius permits a corridor approximately 60% of the token diameter. This necessarily allows token artwork to overlap the wall visually, but every point and edge of the center path is collision-checked: the center cannot touch or cross a physical wall, so the vision origin cannot cross through it. The former fixed-pixel squeeze-leeway setting remains registered for compatibility but is hidden and no longer controls clearance.
+Squeeze is enabled by default. A clearance of 60% of the radius permits a corridor approximately 60% of the token diameter. This necessarily allows token artwork to overlap the wall visually, but every point and edge of the center path is collision-checked: the center cannot touch or cross a physical wall, so the vision origin cannot cross through it. The former fixed-pixel squeeze-leeway and minimum-clearance settings remain registered for compatibility but are hidden and no longer control clearance.
+
+Foundry movement waypoints store token positions, while collision rays operate on the token's movement origin. Anyfinder converts every requested waypoint and movement-history position to a movement origin before solving, then converts generated route nodes back to token positions before returning the path. The completed path is passed through Foundry's own movement constraint as an authoritative safety check; any path Foundry shortens or adjusts is discarded.
 
 The exact-fit tolerance is subtracted during collision checks to prevent floating-point/tangent noise from closing nominally exact passages. A bounded endpoint guard accounts for extra corner reach. This is conservative for some shapes and permissive for others because rotated or non-circular footprints are reduced to one scalar radius.
 
@@ -114,7 +115,7 @@ A corridor can be geometrically passable yet contain no sampled centerline nodes
 
 ### Wall endpoints and diagonal pinches
 
-Endpoint guards and the no-corner-cut rule prevent many “cut around the wall cap” artifacts. However, multiple walls meeting with subpixel gaps remain sensitive to tolerance. Fixtures should cover T-junctions, acute angles, nearly coincident endpoints, and closed doors embedded in longer walls.
+Endpoint exclusion acts as a protective zone around wall vertices, including vertices shared by multiple walls. Together with the no-corner-cut rule and Foundry's final constraint check, it prevents routes from becoming tangent to a hard wall corner. Multiple walls meeting with subpixel gaps remain sensitive to tolerance; fixtures should continue to cover T-junctions, acute angles, nearly coincident endpoints, and closed doors embedded in longer walls.
 
 ### Target moves while Worker solves
 
