@@ -966,91 +966,94 @@ var { memory: mn, __wbg_wayfinder_free: hn, wayfinder_addRegion: gn, wayfinder_a
 	__wbindgen_cast_0000000000000003: Yt
 } }, n);
 fn(pn), $(), Hooks.once("init", () => {
-	game.settings.register("anyfinder-next", "enablePathfinding", {
-		name: "enablePathfinding",
+        game.settings.register("anyfinder-next", "enablePathfinding", {
+                name: "enablePathfinding",
 		scope: "user",
 		config: !1,
-		type: Boolean,
-		default: !0
-	}), game.settings.register("anyfinder-next", "forcePathfindingAllPlayers", {
-		name: "Force Pathfinding for All Players",
-		hint: "Global switch that keeps pathfinding enabled for all players.",
-		scope: "world",
-		config: !0,
-		type: Boolean,
-		default: !0
-	}), game.settings.register("anyfinder-next", "fogExploration", {
+                type: Boolean,
+                default: !0
+        }), game.settings.register("anyfinder-next", "forcePathfindingAllPlayers", {
+                name: "anyfinder-next.settings.forcePathfindingAllPlayers.name",
+                hint: "anyfinder-next.settings.forcePathfindingAllPlayers.hint",
+                scope: "world",
+                config: !0,
+                type: Boolean,
+                default: !0
+        }), game.settings.register("anyfinder-next", "fogExploration", {
 		name: "anyfinder-next.settings.fogExploration.name",
 		hint: "anyfinder-next.settings.fogExploration.hint",
 		scope: "world",
-		config: !0,
-		type: Boolean,
-		default: !0
-	}), game.settings.register("anyfinder-next", "gridlessAllowSqueeze", {
-		name: "Gridless Squeeze Leeway",
-		hint: "Allow configurable token clipping against walls for gridless routes.",
-		scope: "world",
-		config: !0,
-		type: Boolean,
-		default: !1,
-		onChange: () => anxOnGridlessSettingChanged()
-	}), game.settings.register("anyfinder-next", "gridlessSqueezeLeewayPx", {
-		name: "Gridless Leeway (px)",
-		hint: "Pixels of token collision radius reducible for squeeze routing.",
-		scope: "world",
-		config: !0,
-		type: Number,
-		range: { min: 0, max: 100, step: 1 },
-		default: 8,
-		onChange: () => anxOnGridlessSettingChanged()
-	}), game.settings.register("anyfinder-next", "gridlessNodeStepPx", {
-		name: "Gridless Node Step (px)",
-		hint: "Sampling step for gridless path routing. Lower = better quality, higher = faster.",
-		scope: "world",
-		config: !0,
-		type: Number,
-		range: { min: 16, max: 160, step: 4 },
-		default: 40,
-		onChange: () => anxOnGridlessSettingChanged()
-	}), game.settings.register("anyfinder-next", "gridlessMinCenterClearancePx", {
-		name: "Gridless Minimum Center Clearance (px)",
-		hint: "Minimum wall distance kept for token center in gridless routing.",
-		scope: "world",
-		config: !0,
-		type: Number,
-		range: { min: 0, max: 32, step: 1 },
-		default: 4,
-		onChange: () => anxOnGridlessSettingChanged()
-	}), game.settings.register("anyfinder-next", "gridlessExactFitTolerancePx", {
-		name: "Gridless Exact-Fit Tolerance (px)",
-		hint: "Small collision tolerance for near-tangent passages.",
-		scope: "world",
-		config: !0,
-		type: Number,
-		range: { min: 0, max: 3, step: 0.05 },
-		default: 0.75,
-		onChange: () => anxOnGridlessSettingChanged()
-	}), game.settings.register("anyfinder-next", "debugMode", {
-		name: "Debug Mode",
-		hint: "Master debug switch. Enables technical logs and trace capture.",
-		scope: "world",
-		config: !0,
-		type: Boolean,
-		default: !1
-	}), game.settings.register("anyfinder-next", "debugLogMode", {
-		name: "Debug Log Detail Level",
-		hint: "Compact for shareable diagnostics, Full for verbose traces.",
-		scope: "world",
-		config: !0,
-		type: String,
-		choices: { compact: "Compact", full: "Full" },
-		default: "compact"
-	}), game.settings.register("anyfinder-next", "gridlessDebugMaxTraces", {
-		name: "Gridless Debug Trace Limit",
-		hint: "Maximum number of debug traces stored in memory.",
-		scope: "world",
-		config: !0,
-		type: Number,
+                config: !0,
+                type: Boolean,
+                default: !0
+        }), game.settings.register("anyfinder-next", "gridlessNodeStepPx", {
+                name: "anyfinder-next.settings.gridlessNodeStepPx.name",
+                hint: "anyfinder-next.settings.gridlessNodeStepPx.hint",
+                scope: "world",
+                config: !0,
+                type: Number,
+                range: { min: 16, max: 160, step: 4 },
+                default: 40,
+                onChange: () => anxOnGridlessSettingChanged()
+        }), game.settings.register("anyfinder-next", "gridlessMinCenterClearancePx", {
+                name: "anyfinder-next.settings.gridlessMinCenterClearancePx.name",
+                hint: "anyfinder-next.settings.gridlessMinCenterClearancePx.hint",
+                scope: "world",
+                config: !0,
+                type: Number,
+                range: { min: 0, max: 32, step: 1 },
+                default: 4,
+                onChange: () => anxOnGridlessSettingChanged()
+        }), game.settings.register("anyfinder-next", "gridlessAllowSqueeze", {
+                name: "anyfinder-next.settings.gridlessAllowSqueeze.name",
+                hint: "anyfinder-next.settings.gridlessAllowSqueeze.hint",
+                scope: "world",
+                config: !0,
+                type: Boolean,
+                default: !1,
+                onChange: () => anxOnGridlessSettingChanged()
+        }), game.settings.register("anyfinder-next", "gridlessSqueezeLeewayPx", {
+                name: "anyfinder-next.settings.gridlessSqueezeLeewayPx.name",
+                hint: "anyfinder-next.settings.gridlessSqueezeLeewayPx.hint",
+                scope: "world",
+                config: !0,
+                type: Number,
+                range: { min: 0, max: 100, step: 1 },
+                default: 8,
+                onChange: () => anxOnGridlessSettingChanged()
+        }), game.settings.register("anyfinder-next", "gridlessExactFitTolerancePx", {
+                name: "anyfinder-next.settings.gridlessExactFitTolerancePx.name",
+                hint: "anyfinder-next.settings.gridlessExactFitTolerancePx.hint",
+                scope: "world",
+                config: !1,
+                type: Number,
+                range: { min: 0, max: 3, step: 0.05 },
+                default: 0.75,
+                onChange: () => anxOnGridlessSettingChanged()
+        }), game.settings.register("anyfinder-next", "debugMode", {
+                name: "anyfinder-next.settings.debugMode.name",
+                hint: "anyfinder-next.settings.debugMode.hint",
+                scope: "world",
+                config: !0,
+                type: Boolean,
+                default: !1
+        }), game.settings.register("anyfinder-next", "debugLogMode", {
+                name: "anyfinder-next.settings.debugLogMode.name",
+                hint: "anyfinder-next.settings.debugLogMode.hint",
+                scope: "world",
+                config: !0,
+                type: String,
+                choices: {
+                        compact: "anyfinder-next.settings.debugLogMode.choices.compact",
+                        full: "anyfinder-next.settings.debugLogMode.choices.full"
+                },
+                default: "compact"
+        }), game.settings.register("anyfinder-next", "gridlessDebugMaxTraces", {
+                name: "anyfinder-next.settings.gridlessDebugMaxTraces.name",
+                hint: "anyfinder-next.settings.gridlessDebugMaxTraces.hint",
+                scope: "world",
+                config: !1,
+                type: Number,
 		range: { min: 20, max: 1000, step: 10 },
 		default: 200
         }), game.keybindings.register("anyfinder-next", "togglePathfinding", {
@@ -1088,6 +1091,8 @@ fn(pn), $(), Hooks.once("init", () => {
         canvas.fog?.addEventListener("explored", function() {
                 canvas.anyfinder?.updateFog();
         });
+}), Hooks.on("renderSettingsConfig", (html) => {
+        anxRenderSettingsSections(html);
 }), Hooks.on("getSceneControlButtons", (e) => {
         if (!e.tokens?.tools)
                 return;
@@ -1151,6 +1156,31 @@ const ANX_SETTING_DEFAULTS = {
   debugMode: !1,
   gridlessAllowSqueeze: !1
 };
+function anxRenderSettingsSections(html) {
+  const root = html?.[0] ?? html;
+  const form = root?.querySelector?.("form") ?? root;
+  const documentRef = form?.ownerDocument ?? globalThis.document;
+  if (!form || !documentRef?.createElement)
+    return;
+  const sections = [
+    ["forcePathfindingAllPlayers", "anyfinder-next.settings.sections.general"],
+    ["gridlessNodeStepPx", "anyfinder-next.settings.sections.gridless"],
+    ["debugMode", "anyfinder-next.settings.sections.advanced"]
+  ];
+  for (const [setting, localizationKey] of sections) {
+    if (form.querySelector(`[data-anx-settings-section="${setting}"]`))
+      continue;
+    const field = form.querySelector(`[name="${ANX_MODULE_ID}.${setting}"]`) || form.querySelector(`[name="${setting}"]`);
+    const group = field?.closest?.(".form-group") ?? field?.closest?.("fieldset");
+    if (!group?.parentNode)
+      continue;
+    const heading = documentRef.createElement("h3");
+    heading.className = "anx-settings-section";
+    heading.dataset.anxSettingsSection = setting;
+    heading.textContent = game.i18n.localize(localizationKey);
+    group.parentNode.insertBefore(heading, group);
+  }
+}
 const ANX_STRING_SETTING_DEFAULTS = {
   debugLogMode: "compact"
 };

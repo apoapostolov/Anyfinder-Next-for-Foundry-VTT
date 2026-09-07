@@ -6,6 +6,9 @@ const bundle = readFileSync(
   new URL("../dist/anyfinder-next.js", import.meta.url),
   "utf8",
 );
+const english = JSON.parse(
+  readFileSync(new URL("../languages/en.json", import.meta.url), "utf8"),
+);
 
 test("normal Anyfinder source is preserved under ingest", () => {
   assert.ok(
@@ -45,4 +48,14 @@ test("returned gridless paths validate the implicit start connector", () => {
   assert.match(bundle, /function anxIsSafeGridlessStartEgress/);
   assert.match(bundle, /anxValidatePathCollisionFromStart\(O, A/);
   assert.match(bundle, /startConnectorBlocked/);
+});
+
+test("settings are localized, grouped with semantic headings, and hide internal knobs", () => {
+  assert.match(bundle, /renderSettingsConfig/);
+  assert.match(bundle, /createElement\("h3"\)/);
+  assert.match(bundle, /anx-settings-section/);
+  assert.equal(english["anyfinder-next"].settings.sections.gridless, "Gridless Maps");
+  assert.equal(english["anyfinder-next"].settings.gridlessNodeStepPx.name, "Gridless Route Detail");
+  assert.match(bundle, /gridlessExactFitTolerancePx[\s\S]*?config: !1/);
+  assert.match(bundle, /gridlessDebugMaxTraces[\s\S]*?config: !1/);
 });

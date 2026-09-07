@@ -13,9 +13,54 @@
             }
         },
         "settings": {
+            "sections": {
+                "general": "Pathfinding",
+                "gridless": "Gridless Maps",
+                "advanced": "Advanced Diagnostics"
+            },
+            "forcePathfindingAllPlayers": {
+                "name": "Enable Pathfinding for Everyone",
+                "hint": "When on, pathfinding is enabled for all players by default. When off, players can choose it from the scene controls."
+            },
             "fogExploration": {
-                "name": "Fog Exploration Restriction",
-                "hint": "When enabled, Anyfinder Next will be limited to only parts of the map that have been explored."
+                "name": "Respect Explored Fog",
+                "hint": "When on, tokens cannot route through areas the current player has not explored."
+            },
+            "gridlessNodeStepPx": {
+                "name": "Gridless Route Detail",
+                "hint": "Lower values follow walls and narrow passages more closely but take longer. Higher values are faster but may skip narrow passages."
+            },
+            "gridlessMinCenterClearancePx": {
+                "name": "Wall Clearance (Pixels)",
+                "hint": "Extra space kept between a token and walls. Increase this if tokens brush against walls."
+            },
+            "gridlessAllowSqueeze": {
+                "name": "Allow Tight-Passage Movement",
+                "hint": "Allows tokens to use passages slightly narrower than their normal size. Turn this off for the safest wall clearance."
+            },
+            "gridlessSqueezeLeewayPx": {
+                "name": "Tight-Passage Allowance (Pixels)",
+                "hint": "How much narrower a passage may be when tight-passage movement is enabled."
+            },
+            "gridlessExactFitTolerancePx": {
+                "name": "Exact-Fit Tolerance",
+                "hint": "Advanced collision tolerance for passages that exactly match a token's size."
+            },
+            "debugMode": {
+                "name": "Enable Diagnostic Logging",
+                "hint": "Records pathfinding details for troubleshooting. Leave this off during normal play."
+            },
+            "debugLogMode": {
+                "name": "Diagnostic Detail",
+                "hint": "Choose how much technical information appears in the console and saved traces.",
+                "choices": {
+                    "compact": "Brief",
+                    "full": "Detailed"
+                }
+            },
+            "gridlessDebugMaxTraces": {
+                "name": "Diagnostic Trace Limit",
+                "hint": "Maximum number of diagnostic traces kept in memory."
             }
         }
     }
