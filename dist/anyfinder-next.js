@@ -1387,7 +1387,7 @@ function anxEmitMovementObservation(I, A, g = null) {
 }
 function anxClassifyGridlessTrace(I) {
   const A = [], g = I?.final?.outcome, B = Number(I?.summary?.elapsedMs) || Number(I?.final?.elapsedMs) || 0;
-  g === "native_fallback_after_gridless_fail" && A.push("fallback_after_fail"), g === "reused_last_valid_path" && A.push("reused_last_path"), B >= 120 && A.push("very_slow"), B >= 60 && B < 120 && A.push("slow");
+  g === "gridless_blocked_no_verified_path" && A.push("blocked_after_fail"), g === "native_fallback_after_gridless_fail" && A.push("fallback_after_fail"), g === "reused_last_valid_path" && A.push("reused_last_path"), B >= 120 && A.push("very_slow"), B >= 60 && B < 120 && A.push("slow");
   const C = Array.isArray(I?.attempts) ? I.attempts : [];
   for (const i of C) {
     const E = Array.isArray(i?.segments) ? i.segments : [];
@@ -1906,7 +1906,7 @@ function anxDebugWriteSessionLog() {
       const B = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       anxDebugSessionFilename = `anyfinder-next-debug-${B}.json`;
     }
-    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.4", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
+    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.5", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
     const fp = typeof foundry < "u" ? foundry?.applications?.apps?.FilePicker?.implementation : null;
     fp && typeof fp.upload == "function" ? fp.upload("data", `modules/${ANX_MODULE_ID}/debug`, D, {}) : console.log("[Anyfinder Next] FilePicker unavailable — cannot write debug log to server.");
   } catch {
@@ -2328,6 +2328,11 @@ function anxNativeFallback(I, A, g) {
     }
   };
 }
+function anxBlockedGridlessPath(I) {
+  if (!Array.isArray(I) || !I.length)
+    return [];
+  return [{ ...I[0] }];
+}
 function anxDistanceSquared(I, A) {
   const g = I.x - A.x, B = I.y - A.y;
   return g * g + B * B;
@@ -2576,10 +2581,10 @@ function anxEnsureGridlessCenterPathStartsAt(I, A) {
     B.shift();
   return B.unshift(g), B;
 }
-function anxFoundryPathStartsAtRequestedOrigin(I, A) {
+function anxFoundryPathMatchesRequestedEndpoints(I, A) {
   if (!Array.isArray(I) || !I.length || !Array.isArray(A) || !A.length)
     return !1;
-  return anxPathPointMatchesAny(I[0], [A[0]], 0.01);
+  return anxPathPointMatchesAny(I[0], [A[0]], 0.01) && anxPathPointMatchesAny(I[I.length - 1], [A[A.length - 1]], 1);
 }
 function anxPrepareGridlessPathForFoundry(I, A, g, B) {
   const C2 = Array.isArray(g) ? g : [];
@@ -3383,7 +3388,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           if (X2 <= KSoftTarget * KSoftTarget && H2 <= qSoftStart * qSoftStart && Array.isArray(v2.path)) {
             v2.frame = (v2.frame || 0) + 1;
             const K2 = v2.detour ? ANX_GRIDLESS_RECALC_FRAME_INTERVAL_DETOUR : ANX_GRIDLESS_RECALC_FRAME_INTERVAL;
-            if (!hasWorkerPathBackend && m2 - v2.t <= ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS && v2.frame % K2 !== 0 && anxFoundryPathStartsAtRequestedOrigin(v2.path, A)) {
+            if (!hasWorkerPathBackend && m2 - v2.t <= ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS && v2.frame % K2 !== 0 && anxFoundryPathMatchesRequestedEndpoints(v2.path, A)) {
               reportDragOutcome("drag_reuse_cached_path", !0, null, { source: "dragReuseCache" });
               return v2.path;
             }
@@ -3394,12 +3399,12 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           const X2 = anxDistanceSquared({ x: D2, y: o2 }, f2.target), H2 = anxDistanceSquared(iStart, f2.start), K2 = Math.max(72, W2 * 6), q2 = Math.max(24, p2 * 6);
           if (m2 - f2.t <= ANX_GRIDLESS_FAIL_REUSE_MAX_AGE_MS && X2 <= K2 * K2 && H2 <= q2 * q2) {
             const J2 = anxGridlessLastPathCache.get(n2);
-            if (!hasWorkerPathBackend && J2 && Array.isArray(J2.path) && m2 - J2.t <= 400 && anxFoundryPathStartsAtRequestedOrigin(J2.path, A)) {
+            if (!hasWorkerPathBackend && J2 && Array.isArray(J2.path) && m2 - J2.t <= 400 && anxFoundryPathMatchesRequestedEndpoints(J2.path, A)) {
               reportDragOutcome("reused_last_valid_path", !0, f2.reason ?? "recent_failed_target", { source: "failCache" });
               return J2.path;
             }
-            reportDragOutcome("native_fallback_after_gridless_fail", !1, f2.reason ?? "recent_failed_target", { source: "failCache" });
-            return anxNativeFallback(I, A, g).result;
+            reportDragOutcome("gridless_blocked_no_verified_path", !1, f2.reason ?? "recent_failed_target", { source: "failCache" });
+            return anxBlockedGridlessPath(A);
           }
         }
       }
@@ -3458,7 +3463,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           if (bootstrapGridlessPath)
             anxGridlessWorkerState.bootstrapByToken.add(i);
           else
-            return reportDragOutcome("native_fallback_after_gridless_fail", !1, "worker_pending", { source: "worker_pending_native_fallback" }), anxNativeFallback(I, A, g).result;
+            return reportDragOutcome("gridless_blocked_no_verified_path", !1, "worker_pending", { source: "worker_pending_fail_closed" }), anxBlockedGridlessPath(A);
         }
       }
       const C = anxFindGridlessPath(I, centerDestinations, {
@@ -3509,7 +3514,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
       });
       if (i) {
         const D = anxGridlessLastPathCache.get(i);
-        if (D && Array.isArray(D.path) && E - D.t <= 400 && anxFoundryPathStartsAtRequestedOrigin(D.path, A)) {
+        if (D && Array.isArray(D.path) && E - D.t <= 400 && anxFoundryPathMatchesRequestedEndpoints(D.path, A)) {
           const o = D.path[D.path.length - 1], n = Array.isArray(A) && A.length > 0 ? A[A.length - 1] : null;
           return anxDebugLog("Gridless route failed; reusing last valid path.", { ageMs: Math.round(E - D.t), reason: C.reason }), B && (B.final = {
             outcome: "reused_last_valid_path",
@@ -3528,13 +3533,12 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           }, anxPushGridlessTrace(anxCloneTrace(B))), reportDragOutcome("reused_last_valid_path", !0, C.reason, { source: "lastValidPathCache" }), D.path;
         }
       }
-      const D = anxNowMs(), o = anxNativeFallback(I, A, g).result, n = anxNowMs();
-      return anxDebugLog("Gridless route failed; using native fallback.", { reason: C.reason }), B && (B.final = {
-        outcome: "native_fallback_after_gridless_fail",
+      const o = anxBlockedGridlessPath(A);
+      return anxDebugLog("Gridless route failed; blocking movement until a verified route is available.", { reason: C.reason }), B && (B.final = {
+        outcome: "gridless_blocked_no_verified_path",
         reason: C.reason,
-        pathLength: null,
+        pathLength: o.length,
         elapsedMs: E - B.startedMs,
-        nativeFallbackMs: n - D,
         expectedFinalCenter: null,
         requestedFinalWaypoint: Array.isArray(A) && A.length > 0 ? { x: Number(A[A.length - 1]?.x) || 0, y: Number(A[A.length - 1]?.y) || 0 } : null,
         movementObservation: {
@@ -3544,8 +3548,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           updates: 0,
           elapsedMs: 0
         }
-      }, anxPushGridlessTrace(anxCloneTrace(B))), reportDragOutcome("native_fallback_after_gridless_fail", !1, C.reason, {
-        nativeFallbackMs: n - D,
+      }, anxPushGridlessTrace(anxCloneTrace(B))), reportDragOutcome("gridless_blocked_no_verified_path", !1, C.reason, {
         triage: B ? anxBuildTraceTriage(B) : null
       }), o;
     }
@@ -3602,12 +3605,13 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
       backendUnexpectedWaypointCount: W
     });
   } catch (B) {
-    anxDebugLog("Pathfinding failed; using native fallback.", B);
-    return finalizePathCaptureAndReturn(anxNativeFallback(I, A, g).result, {
-      branch: "native_fallback",
-      outcome: "native_fallback",
+    const C = anxIsStrictGridlessScene(), i = C ? anxBlockedGridlessPath(A) : anxNativeFallback(I, A, g).result;
+    anxDebugLog(C ? "Gridless pathfinding failed; blocking movement until a verified route is available." : "Pathfinding failed; using native fallback.", B);
+    return finalizePathCaptureAndReturn(i, {
+      branch: C ? "gridless_fail_closed" : "native_fallback",
+      outcome: C ? "gridless_blocked_no_verified_path" : "native_fallback",
       reason: "exception",
-      nativeFallback: !0
+      nativeFallback: !C
     });
   }
 }

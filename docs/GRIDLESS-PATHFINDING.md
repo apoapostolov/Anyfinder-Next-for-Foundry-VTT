@@ -94,7 +94,7 @@ Wider reuse is protected by four gates:
 3. exact scene ID, wall revision, token size, and solver-setting fingerprint;
 4. collision validation against current walls immediately before return.
 
-In addition, cached paths are returned only when their first point still matches Foundry's first requested waypoint. This prevents a route calculated from a movement-history point or a stripped Worker origin from being reused during later drag frames.
+In addition, cached paths are returned only when their first and last points still match Foundry's requested origin and destination. This prevents a route calculated from a movement-history point, a stripped Worker origin, or a stale pointer position from being reused during later drag frames.
 
 For the first request after invalidation, the main thread performs one bounded interactive solve per token while the Worker builds its graph. This avoids presenting a straight native route into a wall. Later frames return to Worker-first behavior; the bootstrap marker is cleared whenever geometry/settings or the canvas lifecycle invalidates routing state.
 
@@ -129,7 +129,7 @@ Every mutation increments `wallRevision` and clears main-thread result maps. The
 
 ### No route
 
-The solver reports a reason and may reuse a very recent legal path. Otherwise it uses Foundry's native constraint result. The one-time bootstrap specifically reduces the unsafe-looking native straight preview during cold Worker startup; native fallback is still the final compatibility path after genuine failures.
+The solver reports a reason and may reuse a very recent legal path. If no verified route is available—including while a Worker is pending, after a cached failure, or after an exception—the gridless adapter returns only Foundry's exact first requested waypoint. This fail-closed path leaves the token at its origin and marks the destination unreachable. It never substitutes Foundry's partial straight constraint, which could otherwise draw through walls and move the token up to the first collision. Native fallback remains available for square and hex routing compatibility, but not for strict gridless pathfinding.
 
 ## Optimization priorities
 

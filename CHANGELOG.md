@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Made gridless pathfinding fail closed: while no verified route exists, Anyfinder now returns only the exact origin and prevents release from moving the token into the first wall.
+- Removed the remaining gridless fallbacks to Foundry's partial straight-line constraint result during Worker waits, cached failures, solver failures, and exceptions.
+- Refused cached gridless routes whose destination no longer matches the current pointer, preventing release onto a stale partial route.
 - Restored Foundry v14's required first-waypoint contract for gridless paths: Worker, synchronous, and cached routes now remain anchored to the exact token drag origin.
 - Stopped using movement history as the gridless solver origin and stopped stripping the origin from completed Worker routes.
 - Corrected gridless coordinate handling so Foundry token positions are converted to movement origins before routing and generated nodes are converted back before movement.

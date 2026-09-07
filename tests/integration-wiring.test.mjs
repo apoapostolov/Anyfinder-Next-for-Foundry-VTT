@@ -77,7 +77,7 @@ test("gridless routing converts Foundry token positions to movement origins and 
       (candidate) => Math.hypot(point.x - candidate.x, point.y - candidate.y) <= tolerance,
     ),
   });
-  vm.runInContext(`${bundle.slice(start, end)}\nthis.api = { anxWaypointToMovementOrigin, anxGridlessPathToWaypoints, anxEnsureGridlessCenterPathStartsAt, anxPrepareGridlessPathForFoundry };`, context);
+  vm.runInContext(`${bundle.slice(start, end)}\nthis.api = { anxWaypointToMovementOrigin, anxGridlessPathToWaypoints, anxEnsureGridlessCenterPathStartsAt, anxFoundryPathMatchesRequestedEndpoints, anxPrepareGridlessPathForFoundry };`, context);
   const token = {
     x: 100,
     y: 200,
@@ -101,6 +101,14 @@ test("gridless routing converts Foundry token positions to movement origins and 
     { x: 200, y: 300 },
   ]);
   assert.equal(path.at(-1).explicit, true);
+  assert.equal(context.api.anxFoundryPathMatchesRequestedEndpoints(path, [
+    { x: 100, y: 200 },
+    { x: 200, y: 300 },
+  ]), true);
+  assert.equal(context.api.anxFoundryPathMatchesRequestedEndpoints(path, [
+    { x: 100, y: 200 },
+    { x: 220, y: 300 },
+  ]), false);
 
   token.constrainMovementPath = (candidate) => [candidate.slice(0, 1), true];
   assert.equal(context.api.anxPrepareGridlessPathForFoundry(
@@ -116,8 +124,31 @@ test("gridless routes obey Foundry's required first-waypoint contract", () => {
   assert.match(bundle, /centerDestinations = centerWaypoints\.slice\(1\)/);
   assert.match(bundle, /B\.unshift\(C\)/);
   assert.match(bundle, /C\[0\] = \{ \.\.\.C2\[0\] \}/);
-  assert.match(bundle, /anxFoundryPathStartsAtRequestedOrigin\(v2\.path, A\)/);
+  assert.match(bundle, /anxFoundryPathMatchesRequestedEndpoints\(v2\.path, A\)/);
   assert.match(bundle, /__anxStart: iStart/);
+});
+
+test("gridless failures fail closed at the exact requested origin", () => {
+  const start = bundle.indexOf("function anxBlockedGridlessPath");
+  const end = bundle.indexOf("function anxDistanceSquared", start);
+  assert.ok(start >= 0 && end > start, "expected fail-closed gridless helper");
+  const context = vm.createContext({});
+  vm.runInContext(`${bundle.slice(start, end)}\nthis.block = anxBlockedGridlessPath;`, context);
+  const origin = { x: 120, y: 340, elevation: 10, explicit: true };
+  const blocked = context.block([origin, { x: 800, y: 900 }]);
+  assert.deepEqual({ ...blocked[0] }, origin);
+  assert.equal(blocked.length, 1);
+  assert.notEqual(blocked[0], origin);
+
+  const findPathStart = bundle.indexOf("async function anxFindPathWithFallback");
+  const gridlessStart = bundle.indexOf("if (anxIsStrictGridlessScene())", findPathStart);
+  const gridlessEnd = bundle.indexOf("if (!canvas.anyfinder)", gridlessStart);
+  const gridlessBranch = bundle.slice(gridlessStart, gridlessEnd);
+  assert.match(gridlessBranch, /worker_pending_fail_closed/);
+  assert.match(gridlessBranch, /Gridless route failed; blocking movement/);
+  assert.doesNotMatch(gridlessBranch, /anxNativeFallback/);
+  assert.match(bundle, /C \? anxBlockedGridlessPath\(A\) : anxNativeFallback/);
+  assert.match(bundle, /anxFoundryPathMatchesRequestedEndpoints/);
 });
 
 test("gridless results are rejected when Foundry constrains the route", () => {
