@@ -44,6 +44,19 @@ test("first worker request gets a bounded synchronous bootstrap path", () => {
   assert.match(bundle, /__anxInteractiveFast: r2 \|\| bootstrapGridlessPath/);
 });
 
+test("long worker routes remain pending and Foundry's direct dashed segment is hidden", () => {
+  assert.match(bundle, /function anxWaitForGridlessWorkerPath/);
+  assert.match(bundle, /longRoute \? 8e3 : 1200/);
+  assert.match(bundle, /CONFIG\.Token\.rulerClass\.prototype\._getSegmentStyle/);
+  assert.match(bundle, /A\?\.unreachable/);
+});
+
+test("squeeze defaults on and uses a token-relative 60 percent clearance", () => {
+  assert.match(bundle, /const ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO = 0\.6/);
+  assert.match(bundle, /gridlessAllowSqueeze: !0/);
+  assert.match(bundle, /B \* ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO/);
+});
+
 test("returned gridless paths validate the implicit start connector", () => {
   assert.match(bundle, /function anxIsSafeGridlessStartEgress/);
   assert.match(bundle, /anxValidatePathCollisionFromStart\(O, A/);

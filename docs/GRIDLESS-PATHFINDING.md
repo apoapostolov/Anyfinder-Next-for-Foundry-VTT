@@ -18,10 +18,13 @@ The token is approximated as a circle based on its larger scaled pixel dimension
 
 ```text
 effective clearance = max(
+  1 pixel,
   minimum center clearance,
-  token radius - (squeeze enabled ? squeeze leeway : 0)
+  token radius × (squeeze enabled ? 0.60 : 1.00)
 )
 ```
+
+Squeeze is enabled by default. A clearance of 60% of the radius permits a corridor approximately 60% of the token diameter. This necessarily allows token artwork to overlap the wall visually, but every point and edge of the center path is collision-checked: the center cannot touch or cross a physical wall, so the vision origin cannot cross through it. The former fixed-pixel squeeze-leeway setting remains registered for compatibility but is hidden and no longer controls clearance.
 
 The exact-fit tolerance is subtracted during collision checks to prevent floating-point/tangent noise from closing nominally exact passages. A bounded endpoint guard accounts for extra corner reach. This is conservative for some shapes and permissive for others because rotated or non-circular footprints are reduced to one scalar radius.
 
@@ -31,9 +34,9 @@ A point is blocked when it lies outside `sceneRect` or falls within effective cl
 
 ## Node algorithm
 
-### 1. Sample the scene
+### 1. Sample the Search Area
 
-A regular rectangular lattice covers `sceneRect`. The configured spacing defaults to 40 px. If the grid would exceed 20,000 nodes, spacing increases until the budget is met, up to a hard maximum.
+A regular rectangular lattice covers the search area. The Worker first searches a route-focused rectangle around the start, destination, and explicit waypoints, then widens that rectangle on later attempts. Its soft budget is 120,000 nodes and its maximum automatic spacing is 160 px. The synchronous bootstrap still covers the full scene with a conservative 20,000-node budget because it runs on the UI thread.
 
 For a scene of width `W`, height `H`, and step `s`, the approximate node count is:
 
@@ -69,13 +72,17 @@ The Worker uses a binary minimum heap and a closed byte mask. The synchronous fa
 
 The raw node chain is simplified by replacing runs of short edges with the longest collision-free segment. Exact requested endpoints are restored. The combined path is collision-validated before it is accepted by the main thread. Worker answers receive a second current-geometry validation at consumption time.
 
-### 7. Retry with alternate resolutions
+### 7. Retry with Alternate Resolutions
 
-If a solve fails, the retry ladder changes node step, corner scale, iteration allowance, and time allowance. Coarser graphs reduce work and can recover long routes; finer rescue steps can recover narrow passages. Interactive mode uses a shorter ladder to protect drag responsiveness.
+If a solve fails, the retry ladder changes node step, search-area margin, corner scale, iteration allowance, and time allowance. Long routes get fine-step attempts inside progressively wider route corridors before a full-scene fallback. Coarser graphs reduce work; finer rescue steps recover narrow passages. Short interactive routes retain a smaller ladder to protect drag responsiveness.
 
 ## Interactive scheduling
 
 Each token has at most one in-flight Worker request. New drag targets replace the queued payload, so obsolete queued work is coalesced. Completed routes are accepted for up to five seconds and for target drift between 24 and 160 px, scaled by node step.
+
+For a long route, or after the first synchronous bootstrap, the Foundry pathfinding job now remains pending while the matching Worker result is calculated. Cancellation follows Foundry's drag-search cancellation. This fixes the case where a successful Worker result arrived after Foundry had already accepted a native fallback and therefore was never displayed unless the pointer moved again.
+
+Foundry renders the unresolved destination as a dashed, direct “unreachable” segment while a pathfinding promise is pending. Anyfinder wraps the protected token-ruler segment-style method and hides only that current-user unreachable segment while Anyfinder is enabled. The actual path, history, endpoint, and distance labels remain available.
 
 That wider window fixes the principal “straight line first / never gets the node path” defect. The former 1.5–4 px target tolerance was smaller than ordinary pointer movement between frames, so valid Worker answers were routinely thrown away.
 
@@ -101,9 +108,9 @@ Projection finds a graph node quickly, but connecting the real token center to t
 
 The sampling makes this a pragmatic rather than analytic proof. Exact contact with a physical wall is rejected because its side is ambiguous.
 
-### Narrow corridors and exact fits
+### Narrow Corridors and Exact Fits
 
-A corridor can be geometrically passable yet contain no sampled centerline nodes. Fine-step retries help, but the 20,000-node budget can force a coarser step on large maps. A local refinement patch around failed attachment/search areas would give better narrow-passage fidelity than globally shrinking the lattice.
+A corridor can be geometrically passable yet contain no sampled centerline nodes. Fine-step retries and route-focused search rectangles preserve more detail on large maps, but lattice alignment can still miss a passage close to the configured minimum width. A future local refinement pass around failed attachment/search areas could improve this further.
 
 ### Wall endpoints and diagonal pinches
 
@@ -125,7 +132,7 @@ The solver reports a reason and may reuse a very recent legal path. Otherwise it
 
 1. Share one generated search core between Worker and main thread to eliminate semantic drift.
 2. Port the Worker's heap to the synchronous implementation.
-3. Add a uniform spatial hash for walls and use it in mask, edge, and simplification checks.
+3. Extend the Worker's wall spatial hash to the synchronous bootstrap.
 4. Add local adaptive refinement near failed endpoints and narrow passages.
 5. Add generation-based cancellation if profiling shows obsolete in-flight work remains material.
 6. Replace full nearest-walkable scans for blocked endpoints with expanding lattice rings; this matters mainly at the 20,000-node ceiling.
@@ -142,5 +149,5 @@ The solver reports a reason and may reuse a very recent legal path. Otherwise it
 - blocked start on each side of a wall and near an endpoint;
 - rapid drag while editing/opening/closing walls;
 - immediate drag after canvas load and after settings change;
-- maps at and above the 20,000-node budget;
+- maps at and above both the 20,000-node synchronous and 120,000-node Worker budgets;
 - multi-waypoint and long-route retry behavior.

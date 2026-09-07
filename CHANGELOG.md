@@ -17,7 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Validated the implicit start connector and permit only same-side, clearance-increasing egress for wall-adjacent starts.
 - Prevented main-thread diagonal corner cutting and removed duplicate undirected graph-edge checks.
 - Enforced Worker time limits that were previously declared but unused.
-- Kept squeeze routing conservatively disabled when a setting is missing or malformed, matching its registered default.
+- Hid Foundry's temporary direct dashed segment while Anyfinder is calculating the real route.
+- Kept long gridless searches pending until their matching Worker result arrives instead of losing successful late results to a native fallback.
+- Added route-focused search windows, spatial wall indexing, fine-resolution retries, and larger off-thread budgets for large complex maps.
+- Reworked squeeze clearance as a token-relative 60%-diameter rule, enabled it by default, and added final Worker collision validation so token centers cannot cross walls.
 
 ### Added
 

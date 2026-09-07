@@ -1010,13 +1010,13 @@ fn(pn), $(), Hooks.once("init", () => {
                 scope: "world",
                 config: !0,
                 type: Boolean,
-                default: !1,
+                default: !0,
                 onChange: () => anxOnGridlessSettingChanged()
         }), game.settings.register("anyfinder-next", "gridlessSqueezeLeewayPx", {
                 name: "anyfinder-next.settings.gridlessSqueezeLeewayPx.name",
                 hint: "anyfinder-next.settings.gridlessSqueezeLeewayPx.hint",
                 scope: "world",
-                config: !0,
+                config: !1,
                 type: Number,
                 range: { min: 0, max: 100, step: 1 },
                 default: 8,
@@ -1076,7 +1076,10 @@ fn(pn), $(), Hooks.once("init", () => {
                 libWrapper.register("anyfinder-next", "CONFIG.Token.objectClass.prototype.findMovementPath", function(e, t, n) {
                         if (!anxShouldUsePathfinding(n, this))
                                 return e(t, n);
-                        const r = anxIsStrictGridlessScene() ? null : new i();
+                        const r = anxIsStrictGridlessScene() ? {
+                                cancelled: !1,
+                                cancel() { this.cancelled = !0; }
+                        } : new i();
                         return {
                                 result: void 0,
                                 promise: anxFindPathWithFallback(this, t, n, r),
@@ -1087,6 +1090,13 @@ fn(pn), $(), Hooks.once("init", () => {
                 ui.notifications?.warn("Anyfinder Next: failed to install movement wrapper. Using Foundry pathfinding.");
                 anxDebugLog("Wrapper registration failed.", e);
                 return;
+        }
+        try {
+                libWrapper.register("anyfinder-next", "CONFIG.Token.rulerClass.prototype._getSegmentStyle", function(e, t) {
+                        return anxShouldHideFoundryDirectRulerSegment(this, t) ? { width: 0 } : e(t);
+                }, "WRAPPER");
+        } catch (e) {
+                anxDebugLog("Foundry direct-ruler suppression was not installed.", e);
         }
         canvas.fog?.addEventListener("explored", function() {
                 canvas.anyfinder?.updateFog();
@@ -1154,7 +1164,7 @@ const ANX_SETTING_DEFAULTS = {
   forcePathfindingAllPlayers: !0,
   fogExploration: !0,
   debugMode: !1,
-  gridlessAllowSqueeze: !1
+  gridlessAllowSqueeze: !0
 };
 function anxRenderSettingsSections(html) {
   const root = html?.[0] ?? html;
@@ -1210,6 +1220,7 @@ const anxPathCaptureState = {
 const anxGridlessFailureDigest = [];
 const ANX_GRIDLESS_NODE_BUDGET = 2e4;
 const ANX_GRIDLESS_MAX_STEP = 320;
+const ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO = 0.6;
 const ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS = 420;
 const ANX_GRIDLESS_FAIL_REUSE_MAX_AGE_MS = 260;
 const ANX_GRIDLESS_INTERACTIVE_INTERVAL_MS = 90;
@@ -1895,7 +1906,7 @@ function anxDebugWriteSessionLog() {
       const B = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       anxDebugSessionFilename = `anyfinder-next-debug-${B}.json`;
     }
-    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.1", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
+    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.2", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
     const fp = typeof foundry < "u" ? foundry?.applications?.apps?.FilePicker?.implementation : null;
     fp && typeof fp.upload == "function" ? fp.upload("data", `modules/${ANX_MODULE_ID}/debug`, D, {}) : console.log("[Anyfinder Next] FilePicker unavailable — cannot write debug log to server.");
   } catch {
@@ -2012,12 +2023,29 @@ function anxTryConsumeWorkerResult(I, A, g, B, C2 = null) {
       anxGridlessWorkerState.resultByToken.delete(I);
       const O = anxBuildWorkerOverlayPath(A, g, E.path);
       if (O) {
-        const W = C2?.settings, p = C2?.token, T = Math.max(Number(W?.gridlessMinCenterClearancePx) || 0, (Number(p?.radiusPx) || 0) - (W?.gridlessAllowSqueeze ? Number(W?.gridlessSqueezeLeewayPx) || 0 : 0)), x = Math.max(0, Math.min(Number(p?.cornerExtraPx) || 0, T * 0.35)), _ = anxValidatePathCollisionFromStart(O, A, anxGetBlockingWallSegments(), T, canvas?.dimensions?.sceneRect, x);
+        const W = C2?.settings, p = C2?.token, T = anxComputeGridlessClearancePx(Number(p?.radiusPx) || 0, W?.gridlessAllowSqueeze === !0, Number(W?.gridlessMinCenterClearancePx) || 0), x = Math.max(0, Math.min(Number(p?.cornerExtraPx) || 0, T * 0.35)), _ = anxValidatePathCollisionFromStart(O, A, anxGetBlockingWallSegments(), T, canvas?.dimensions?.sceneRect, x);
         if (_.blockedPointIndex < 0 && _.blockedSegmentIndex < 0 && !_.startConnectorBlocked)
           return O;
         anxDebugLog("Rejected worker path after current-geometry validation.", _);
       }
     }
+  }
+  return null;
+}
+async function anxWaitForGridlessWorkerPath(I, A, g, B, C, i, E = 1200) {
+  const D = anxNowMs() + Math.max(100, Number(E) || 1200), o = Math.max(24, Math.min(160, Number(B) * 1.2 || 60));
+  for (; anxNowMs() < D; ) {
+    if (i?.cancelled)
+      return null;
+    const n = anxTryConsumeWorkerResult(I, A, g, B, C);
+    if (Array.isArray(n) && n.length >= 1)
+      return n;
+    const m = anxGridlessWorkerState.resultByToken.get(I);
+    if (m && m.sceneId === C?.scene?.sceneId && m.wallRevision === Number(C?.scene?.wallRevision) && m.fingerprint === C?.fingerprint && anxDistanceSquared(m.target || {}, g) <= o * o && !Array.isArray(m.path)) {
+      anxGridlessWorkerState.resultByToken.delete(I);
+      return null;
+    }
+    await new Promise((O) => setTimeout(O, 20));
   }
   return null;
 }
@@ -2522,6 +2550,14 @@ function anxGetTokenRadiusPx(I) {
   const A = I?.document ?? I, g = canvas?.dimensions?.size ?? 100, B = Math.abs(Number((o = A?.texture?.scaleX) != null ? o : 1)) || 1, C = Math.abs(Number((n = A?.texture?.scaleY) != null ? n : 1)) || 1, i = Math.max(1, Number(A?.width ?? 1)) * g * B, E = Math.max(1, Number(A?.height ?? 1)) * g * C;
   return Math.max(i, E) / 2;
 }
+function anxComputeGridlessClearancePx(I, A, g) {
+  const B = Math.max(0, Number(I) || 0), C = Math.max(1, Number(g) || 0);
+  return Math.max(C, A ? B * ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO : B);
+}
+function anxGetTokenGridlessClearancePx(I) {
+  const A = anxGetTokenRadiusPx(I), g = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), B = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32);
+  return anxComputeGridlessClearancePx(A, g, B);
+}
 function anxGetTokenCornerExtraPx(I) {
   var o, n;
   const A = I?.document ?? I, g = canvas?.dimensions?.size ?? 100, B = Math.abs(Number((o = A?.texture?.scaleX) != null ? o : 1)) || 1, C = Math.abs(Number((n = A?.texture?.scaleY) != null ? n : 1)) || 1, i = Math.max(1, Number(A?.width ?? 1)) * g * B, E = Math.max(1, Number(A?.height ?? 1)) * g * C, D = Math.max(i, E) / 2, o2 = Math.hypot(i / 2, E / 2);
@@ -2761,16 +2797,16 @@ function anxWarmGridlessSceneCache() {
   }
 }
 function anxGetLikelyGridlessWarmProfiles() {
-  const I = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), A = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), g = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), B = canvas?.tokens?.placeables ?? [], C = [];
+  const I = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), g = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), B = canvas?.tokens?.placeables ?? [], C = [];
   for (const i of B.slice(0, 8)) {
-    const E = anxGetTokenRadiusPx(i), D = Math.max(g, E - (I ? A : 0)), o = anxGetTokenCornerExtraPx(i), n = Math.max(0, Math.min(o, D * 0.75)), m = Math.max(0, n * 0.6);
+    const E = anxGetTokenRadiusPx(i), D = anxComputeGridlessClearancePx(E, I, g), o = anxGetTokenCornerExtraPx(i), n = Math.max(0, Math.min(o, D * 0.75)), m = Math.max(0, n * 0.6);
     C.push({
       clearance: D,
       graphGuard: m
     });
   }
   if (!C.length) {
-    const i = canvas?.dimensions?.size ?? 100, E = i / 2, D = Math.max(g, E - (I ? A : 0)), o = Math.max(0, Math.min(Math.hypot(i / 2, i / 2) - E, D * 0.75));
+    const i = canvas?.dimensions?.size ?? 100, E = i / 2, D = anxComputeGridlessClearancePx(E, I, g), o = Math.max(0, Math.min(Math.hypot(i / 2, i / 2) - E, D * 0.75));
     C.push({
       clearance: D,
       graphGuard: Math.max(0, o * 0.6)
@@ -2917,11 +2953,11 @@ function anxFindGridlessSegmentPath(I, A, g, B = {}, C2 = null) {
     rows: E.rows,
     walls: E.walls.length
   });
-  const D = Number.isFinite(E.step) ? E.step : i, o = anxGetTokenRadiusPx(I), n = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), m = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), O = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), W = Math.max(O, o - (n ? m : 0)), p = anxGetTokenCornerExtraPx(I), T = Number.isFinite(B.cornerScale) ? B.cornerScale : 0.75, x = Math.max(0, Math.min(p, W * T)), graphGuard = Math.max(0, x * 0.6), Q2 = anxGetWalkGraphForClearance(E, W, graphGuard, S2), _ = Q2.mask, edgeBits = Q2.edgeBits, P = { walls: E.walls, sceneRect: E.sceneRect }, j = new Map();
+  const D = Number.isFinite(E.step) ? E.step : i, o = anxGetTokenRadiusPx(I), n = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), O = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), W = anxComputeGridlessClearancePx(o, n, O), p = anxGetTokenCornerExtraPx(I), T = Number.isFinite(B.cornerScale) ? B.cornerScale : 0.75, x = Math.max(0, Math.min(p, W * T)), graphGuard = Math.max(0, x * 0.6), Q2 = anxGetWalkGraphForClearance(E, W, graphGuard, S2), _ = Q2.mask, edgeBits = Q2.edgeBits, P = { walls: E.walls, sceneRect: E.sceneRect }, j = new Map();
   C2 && (C2.clearance = {
     tokenRadiusPx: o,
     squeezeEnabled: n,
-    leewayPx: m,
+    minimumPassageDiameterRatio: ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO,
     minCenterClearancePx: O,
     effectiveClearancePx: W,
     cornerExtraPx: p,
@@ -3186,7 +3222,7 @@ function anxFindGridlessPath(I, A, g, B2 = null) {
       if (!V)
         O = "scene_data_unavailable", x = !1;
       else {
-        const Z = anxGetTokenRadiusPx(I), $ = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), ii = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), yt = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), xt = Math.max(yt, Z - ($ ? ii : 0)), J2 = anxGetTokenCornerExtraPx(I), ft = Number.isFinite(p.cornerScale) ? p.cornerScale : 0.75, At = Math.max(0, Math.min(J2, xt * ft)), gt = anxValidatePathCollisionFromStart(D, i, V.walls, xt, V.sceneRect, At), Bt = gt.blockedPointIndex >= 0 || gt.blockedSegmentIndex >= 0 || gt.startConnectorBlocked;
+        const xt = anxGetTokenGridlessClearancePx(I), J2 = anxGetTokenCornerExtraPx(I), ft = Number.isFinite(p.cornerScale) ? p.cornerScale : 0.75, At = Math.max(0, Math.min(J2, xt * ft)), gt = anxValidatePathCollisionFromStart(D, i, V.walls, xt, V.sceneRect, At), Bt = gt.blockedPointIndex >= 0 || gt.blockedSegmentIndex >= 0 || gt.startConnectorBlocked;
         if (Bt)
           O = "final_path_invalid_collision", x = !1, Tt && (Tt.validation = {
             pointCount: D.length,
@@ -3224,6 +3260,12 @@ function anxGetConstraintHistory(I, A = null) {
 function anxShouldUsePathfinding(I, A = null) {
   const g = anxGetConstrainOptions(I);
   return canvas.scene && !g.ignoreWalls && !g.ignoreCost && anxIsPathfindingEnabledInScene() && !anxTokenHasPathfindingOptOut(A);
+}
+function anxShouldHideFoundryDirectRulerSegment(I, A) {
+  if (!A?.unreachable || A.userId !== game.user?.id)
+    return !1;
+  const g = I?.token;
+  return !!g && anxShouldUsePathfinding({}, g);
 }
 async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
   const pathCapture = anxPathCaptureEnabled() ? anxBuildPathCaptureContext(I, A, g) : null, finalizePathCaptureAndReturn = (B2, C2 = {}) => (anxFinalizePathCapture(pathCapture, {
@@ -3297,13 +3339,15 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           __anxInteractiveFast: r2
         });
         D && anxQueueGridlessWorkerSolve(i, D);
-        const o = anxTryConsumeWorkerResult(
+        let o = anxTryConsumeWorkerResult(
           i,
           { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 },
           { x: D2, y: o2 },
           O2,
           D
         );
+        if ((!Array.isArray(o) || o.length < 1) && anxGridlessWorkerState.worker && (longRoute || anxGridlessWorkerState.bootstrapByToken.has(i)))
+          o = await anxWaitForGridlessWorkerPath(i, { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 }, { x: D2, y: o2 }, O2, D, gridCancellationToken, longRoute ? 8e3 : 1200);
         if (Array.isArray(o) && o.length >= 1) {
           anxSetDisplayedWorkerPath(i, { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 }, { x: D2, y: o2 }, o);
           i && anxGridlessFailCache.delete(i), i && anxGridlessLastPathCache.set(i, {

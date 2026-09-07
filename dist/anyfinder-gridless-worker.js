@@ -1,5 +1,7 @@
-const NODE_BUDGET = 20000;
-const MAX_STEP = 320;
+const NODE_BUDGET = 120000;
+const MAX_STEP = 160;
+const SQUEEZE_RADIUS_RATIO = 0.6;
+const SCENE_STEP_CACHE_MAX = 12;
 const sceneStepCache = new Map();
 
 class MinHeap {
@@ -125,6 +127,46 @@ function segSegD2(a, b, c, d) {
     pointToSegD2(d, a, b),
   );
 }
+function buildWallSpatialIndex(walls, rect, step) {
+  const cellSize = Math.max(128, step * 4);
+  const cells = new Map();
+  const global = [];
+  for (let index = 0; index < walls.length; index++) {
+    const wall = walls[index];
+    const x0 = Math.floor((wall.minX - rect.x) / cellSize);
+    const x1 = Math.floor((wall.maxX - rect.x) / cellSize);
+    const y0 = Math.floor((wall.minY - rect.y) / cellSize);
+    const y1 = Math.floor((wall.maxY - rect.y) / cellSize);
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 512) {
+      global.push(wall);
+      continue;
+    }
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const key = `${x},${y}`;
+        let bucket = cells.get(key);
+        if (!bucket) cells.set(key, (bucket = []));
+        bucket.push(wall);
+      }
+    }
+  }
+  return { rect, cellSize, cells, global };
+}
+function queryWallSpatialIndex(index, minX, minY, maxX, maxY) {
+  if (!index) return null;
+  const x0 = Math.floor((minX - index.rect.x) / index.cellSize);
+  const x1 = Math.floor((maxX - index.rect.x) / index.cellSize);
+  const y0 = Math.floor((minY - index.rect.y) / index.cellSize);
+  const y1 = Math.floor((maxY - index.rect.y) / index.cellSize);
+  const found = new Set(index.global);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const bucket = index.cells.get(`${x},${y}`);
+      if (bucket) for (const wall of bucket) found.add(wall);
+    }
+  }
+  return found;
+}
 function pointBlocked(p, walls, clearance, rect, guard, tol) {
   if (!pointInside(p, rect)) return true;
   const c = Math.max(0, clearance - tol);
@@ -136,7 +178,8 @@ function pointBlocked(p, walls, clearance, rect, guard, tol) {
   const maxX = p.x + eg;
   const minY = p.y - eg;
   const maxY = p.y + eg;
-  for (const w of walls) {
+  const candidates = queryWallSpatialIndex(walls.spatialIndex, minX, minY, maxX, maxY) ?? walls;
+  for (const w of candidates) {
     if (w.minX > maxX || w.maxX < minX || w.minY > maxY || w.maxY < minY)
       continue;
     if (pointToSegD2(p, w.a, w.b) <= cd2) return true;
@@ -176,7 +219,8 @@ function edgeBlocked(a, b, edgeCache, clearance, walls, rect, guard, tol) {
   const maxX = Math.max(a.x, b.x) + eg;
   const minY = Math.min(a.y, b.y) - eg;
   const maxY = Math.max(a.y, b.y) + eg;
-  for (const w of walls) {
+  const candidates = queryWallSpatialIndex(walls.spatialIndex, minX, minY, maxX, maxY) ?? walls;
+  for (const w of candidates) {
     if (w.minX > maxX || w.maxX < minX || w.minY > maxY || w.maxY < minY)
       continue;
     const s2 = segSegD2(a, b, w.a, w.b);
@@ -192,15 +236,42 @@ function edgeBlocked(a, b, edgeCache, clearance, walls, rect, guard, tol) {
   edgeCache.set(key, false);
   return false;
 }
-function getSceneStepData(payload, stepRequested) {
+function getSearchRect(payload, step, margin) {
+  const sceneRect = payload.scene.rect;
+  if (!Number.isFinite(margin)) return sceneRect;
+  const points = [payload.start, ...(Array.isArray(payload.waypoints) ? payload.waypoints : [])];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    const x = Number(point?.x);
+    const y = Number(point?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  if (!Number.isFinite(minX)) return sceneRect;
+  const sceneRight = sceneRect.x + sceneRect.width;
+  const sceneBottom = sceneRect.y + sceneRect.height;
+  const x = Math.max(sceneRect.x, sceneRect.x + Math.floor((minX - margin - sceneRect.x) / step) * step);
+  const y = Math.max(sceneRect.y, sceneRect.y + Math.floor((minY - margin - sceneRect.y) / step) * step);
+  const right = Math.min(sceneRight, sceneRect.x + Math.ceil((maxX + margin - sceneRect.x) / step) * step);
+  const bottom = Math.min(sceneBottom, sceneRect.y + Math.ceil((maxY + margin - sceneRect.y) / step) * step);
+  return { x, y, width: Math.max(step, right - x), height: Math.max(step, bottom - y) };
+}
+function getSceneStepData(payload, stepRequested, searchRect = null) {
   const scene = payload.scene;
-  const keyBase = `${scene.sceneId}|${scene.wallRevision}|${scene.rect.x}:${scene.rect.y}:${scene.rect.width}:${scene.rect.height}`;
+  const rect = searchRect ?? scene.rect;
+  const keyBase = `${scene.sceneId}|${scene.wallRevision}|${rect.x}:${rect.y}:${rect.width}:${rect.height}`;
   let step = stepRequested;
   let cols;
   let rows;
   while (true) {
-    cols = Math.floor(scene.rect.width / step) + 1;
-    rows = Math.floor(scene.rect.height / step) + 1;
+    cols = Math.floor(rect.width / step) + 1;
+    rows = Math.floor(rect.height / step) + 1;
     if (cols * rows <= NODE_BUDGET || step >= MAX_STEP) break;
     step = Math.min(MAX_STEP, step + 16);
   }
@@ -211,14 +282,12 @@ function getSceneStepData(payload, stepRequested) {
     for (let x = 0; x < cols; x++) {
       const idx = y * cols + x;
       nodes[idx] = {
-        x: scene.rect.x + x * step,
-        y: scene.rect.y + y * step,
+        x: rect.x + x * step,
+        y: rect.y + y * step,
       };
     }
   }
-  const data = {
-    sceneRect: scene.rect,
-    walls: scene.walls.map((w) => {
+  const walls = scene.walls.map((w) => {
       const minX = Math.min(w.a.x, w.b.x);
       const maxX = Math.max(w.a.x, w.b.x);
       const minY = Math.min(w.a.y, w.b.y);
@@ -231,7 +300,11 @@ function getSceneStepData(payload, stepRequested) {
         minY,
         maxY,
       };
-    }),
+    });
+  walls.spatialIndex = buildWallSpatialIndex(walls, rect, step);
+  const data = {
+    sceneRect: rect,
+    walls,
     cols,
     rows,
     step,
@@ -241,6 +314,11 @@ function getSceneStepData(payload, stepRequested) {
     segmentPathCache: new Map(),
   };
   sceneStepCache.set(key, data);
+  while (sceneStepCache.size > SCENE_STEP_CACHE_MAX) {
+    const oldest = sceneStepCache.keys().next();
+    if (oldest.done) break;
+    sceneStepCache.delete(oldest.value);
+  }
   return data;
 }
 function getWalkMask(data, clearance, guard, tol) {
@@ -438,14 +516,14 @@ function solveSegment(payload, data, from0, to0, opt) {
   };
   const settings = payload.settings;
   const allowSqueeze = !!settings.gridlessAllowSqueeze;
-  const leeway = Number(settings.gridlessSqueezeLeewayPx) || 0;
   const minClear = Number(settings.gridlessMinCenterClearancePx) || 0;
   const exactTol = Number(settings.gridlessExactFitTolerancePx) || 0;
   const tokenRadius = Number(payload.token.radiusPx) || 0;
   const cornerExtra = Number(payload.token.cornerExtraPx) || 0;
   const clearance = Math.max(
+    1,
     minClear,
-    tokenRadius - (allowSqueeze ? leeway : 0),
+    allowSqueeze ? tokenRadius * SQUEEZE_RADIUS_RATIO : tokenRadius,
   );
   const endpointGuard = Math.max(0, Math.min(cornerExtra, clearance * 0.35));
   const graphGuard = 0;
@@ -828,6 +906,16 @@ function solveSegment(payload, data, from0, to0, opt) {
     Math.abs(a.x - b.x) < 1e-3 && Math.abs(a.y - b.y) < 1e-3;
   if (!same(out[0], from0)) out.unshift({ x: from0.x, y: from0.y });
   if (!same(out[out.length - 1], to0)) out.push({ x: to0.x, y: to0.y });
+  for (const point of out) {
+    if (pointBlocked(point, data.walls, clearance, data.sceneRect, endpointGuard, exactTol)) {
+      return { path: null, reason: "final_path_invalid_collision" };
+    }
+  }
+  for (let i = 0; i < out.length - 1; i++) {
+    if (edgeBlocked(out[i], out[i + 1], ec, clearance, data.walls, data.sceneRect, endpointGuard, exactTol)) {
+      return { path: null, reason: "final_path_invalid_collision" };
+    }
+  }
   data.segmentPathCache.set(
     ck,
     out.map((p) => ({ x: p.x, y: p.y })),
@@ -842,28 +930,33 @@ function solve(payload) {
   const waypoints = Array.isArray(payload.waypoints) ? payload.waypoints : [];
   if (!waypoints.length) return { path: [], reason: null };
   const baseStep = Number(payload.settings.gridlessNodeStepPx) || 40;
-  const attempts = [
-    { step: baseStep, cornerScale: 0.75, iterScale: 8, maxTimeMs: 90 },
-    {
-      step: Math.min(160, baseStep + 12),
-      cornerScale: 0.6,
-      iterScale: 10,
-      maxTimeMs: 110,
-    },
-    {
-      step: Math.min(160, baseStep + 24),
-      cornerScale: 0.45,
-      iterScale: 12,
-      maxTimeMs: 130,
-    },
-    {
-      step: Math.min(160, baseStep + 36),
-      cornerScale: 0.35,
-      iterScale: 14,
-      maxTimeMs: 150,
-    },
-  ];
-  const interactiveFast = payload.interactiveFast === true;
+  let routeLength = 0;
+  let previous = payload.start;
+  for (const waypoint of waypoints) {
+    routeLength += Math.hypot(
+      (Number(waypoint?.x) || 0) - (Number(previous?.x) || 0),
+      (Number(waypoint?.y) || 0) - (Number(previous?.y) || 0),
+    );
+    previous = waypoint;
+  }
+  const longRoute = routeLength >= Math.max(2400, baseStep * 48);
+  const narrowMargin = Math.max(600, Math.min(3200, routeLength * 0.12));
+  const wideMargin = Math.max(1400, Math.min(7000, routeLength * 0.3));
+  const attempts = longRoute
+    ? [
+        { step: baseStep, margin: narrowMargin, cornerScale: 0.6, iterScale: 16, maxTimeMs: 700 },
+        { step: Math.max(16, baseStep - 8), margin: narrowMargin, cornerScale: 0.5, iterScale: 20, maxTimeMs: 1000 },
+        { step: baseStep, margin: wideMargin, cornerScale: 0.45, iterScale: 20, maxTimeMs: 1400 },
+        { step: Math.max(16, baseStep - 12), margin: wideMargin, cornerScale: 0.35, iterScale: 24, maxTimeMs: 1800 },
+        { step: Math.min(160, baseStep + 16), margin: Infinity, cornerScale: 0.3, iterScale: 24, maxTimeMs: 2200 },
+      ]
+    : [
+        { step: baseStep, margin: Infinity, cornerScale: 0.75, iterScale: 8, maxTimeMs: 90 },
+        { step: Math.min(160, baseStep + 12), margin: Infinity, cornerScale: 0.6, iterScale: 10, maxTimeMs: 110 },
+        { step: Math.min(160, baseStep + 24), margin: Infinity, cornerScale: 0.45, iterScale: 12, maxTimeMs: 130 },
+        { step: Math.max(16, baseStep - 8), margin: Infinity, cornerScale: 0.4, iterScale: 16, maxTimeMs: 180 },
+      ];
+  const interactiveFast = payload.interactiveFast === true && !longRoute;
   let ladder = attempts;
   if (interactiveFast) {
     ladder = ladder
@@ -877,7 +970,8 @@ function solve(payload) {
   const full = [];
   let lastFailReason = "no_route";
   for (const opt of ladder) {
-    const data = getSceneStepData(payload, opt.step);
+    const searchRect = getSearchRect(payload, opt.step, opt.margin);
+    const data = getSceneStepData(payload, opt.step, searchRect);
     if (!data) continue;
     let from = {
       x: Number(payload.start.x) || 0,

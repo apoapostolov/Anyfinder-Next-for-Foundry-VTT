@@ -36,7 +36,7 @@
             },
             "gridlessAllowSqueeze": {
                 "name": "Allow Tight-Passage Movement",
-                "hint": "Allows tokens to use passages slightly narrower than their normal size. Turn this off for the safest wall clearance."
+                "hint": "Allows a token through passages as narrow as about 60% of its width. Its center remains clear of walls so vision cannot cross through them."
             },
             "gridlessSqueezeLeewayPx": {
                 "name": "Tight-Passage Allowance (Pixels)",
