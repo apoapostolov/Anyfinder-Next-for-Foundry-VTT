@@ -1,0 +1,46 @@
+{
+  "id": "anyfinder-next",
+  "title": "Anyfinder Next",
+  "description": "Next-generation system-agnostic pathfinding for Foundry VTT v14. Forked from Wayfinder v14 with hex grid awareness.",
+  "version": "14.0.1",
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14",
+    "maximum": "14"
+  },
+  "authors": [
+    {
+      "name": "Apostol Apostolov"
+    },
+    {
+      "name": "7H3LaughingMan",
+      "discord": "7h3laughingman",
+      "url": "https://github.com/7H3LaughingMan",
+      "note": "Original Wayfinder v14 author"
+    }
+  ],
+  "esmodules": [
+    "dist/anyfinder-next.js"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "languages/en.json"
+    }
+  ],
+  "relationships": {
+    "requires": [
+      {
+        "id": "lib-wrapper",
+        "type": "module",
+        "manifest": "https://github.com/ruipin/fvtt-lib-wrapper/releases/latest/download/module.json"
+      }
+    ]
+  },
+  "url": "https://github.com/apoapostolov/Anyfinder-for-Foundry-VTT",
+  "manifest": "https://raw.githubusercontent.com/apoapostolov/Anyfinder-for-Foundry-VTT/main/module.json",
+  "license": "LICENSE.md",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md"
+}

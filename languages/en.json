@@ -1,0 +1,22 @@
+{
+    "anyfinder-next": {
+        "controls": {
+            "pathfinding": {
+                "title": "Pathfinding",
+                "paragraph": "When active, Anyfinder Next will attempt to find the shortest path when dragging a Token."
+            }
+        },
+        "keybindings": {
+            "togglePathfinding": {
+                "name": "Toggle Anyfinder Next Pathfinding",
+                "hint": "Toggles your personal pathfinding preference without opening token controls."
+            }
+        },
+        "settings": {
+            "fogExploration": {
+                "name": "Fog Exploration Restriction",
+                "hint": "When enabled, Anyfinder Next will be limited to only parts of the map that have been explored."
+            }
+        }
+    }
+}

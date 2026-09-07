@@ -1,0 +1,182 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/)
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [14.0.1] - 2026-05-12
+
+### Fixed
+
+- If a wall is not assigned to any level it will now count as being on all levels which is intended according to Foundry.
+
+## [14.0.0] - 2026-04-13
+
+This is an update to add support for Foundry Version 14, there is no backwards compatibility. One thing to note is that Foundry doesn't provide a means to drag a token from one level to another, it has to be done either through regions or manually changing which level a token is on. It is possible to control tokens on another level and Wayfinder will make sure that those tokens avoid walls on their level. However, Fog Exploration is only available for the currently active level so if you are restricting movement based on it then tokens on another level will not be able to move into areas that are explored on their level that aren't explored on the active level.
+
+## [13.1.1] - 2026-04-10
+
+### Changed
+
+- Adjusted the order in which neighboring nodes are returned, they are sorted using the rectilinear distance to the goal so nodes closest to the goal should be processed first
+
+## [13.1.0] - 2026-04-09
+
+### Added
+
+- 4th Dimensional Navigation
+  - When attempting to find a path it will now generate and walk from the current node to the goal, if this path is valid and doesn't run into any walls or enter unexplored parts of the map it will treat the goal as being "next" to the current node with the actual cost to move down the path as the cost of moving to the goal. That means if it thinks there is a cheaper route it will try and follow that first, but if it ends up costing the same as the direct path it will use that.
+
+### Changed
+
+- When the Grid Diagonal Rule is set to Exact it will instead treat it as Approximate, this doesn't change anything on Foundry's side but just changes how Wayfinder calculates the cost which allows me to do the next bit.
+- Costs are now in a "decimal" format, so instead of using a normal floating point numeric that can lose precision it nows uses a fixed decimal that doesn't lose precision as easly. Meaning `0.1 + 0.2 = 0.3` instead of `0.1 + 0.2 = 0.30000000000000004`. With the new changes above we only need 2-4 decimals of precision which doesn't get lost.
+
+## [13.0.3] - 2026-04-02
+
+### Changed
+
+- When getting neighboring nodes, return nodes that don't require diagonal movement first before returning ones that do require diagonal movement
+
+## [13.0.2] - 2026-04-01
+
+### Fixed
+
+- FogManager now accounts for the "scale" of the fog sprite when attempting to extract the exploration data
+
+## [13.0.1] - 2026-03-31
+
+### Fixed
+
+- Fixed a typo that prevented Wayfinder from getting the fog of war properly
+
+## [13.0.0] - 2026-03-31
+
+This is pretty much a complete re-write of the Rust side of things in order to make the module not dependent on a specific system.
+
+## [7.1.0] - 2025-06-20
+
+### Changed
+
+- Reworked Fog Exploration
+  - Due to a [bug](https://github.com/foundryvtt/foundryvtt/issues/13046) with `FogManager` the way Wayfinder handles fog exploration needed to be reworked.
+  - It will now generate a texture that represents the explored area and use that to calculate if a spot has been "explored". This is similar to how it used to work but instead of extracting all four channels (red, green, blue, and alpha) it only extracts the red channel. It is also done less often now, it used to be done every time Wayfinder was trying to find a path and now it's only done when the canvas is ready or when the explored area has changed.
+
+### Fixed
+
+- Wayfinder now respects if you have pathfinding disabled
+
+## [7.0.0] - 2025-06-17
+
+Foundry Virtual Tabletop - Version 13 Support!
+
+### Added
+
+- Support for the new Token Ruler
+
+### Changed
+
+- Project Refactorization
+
+### Removed
+
+- Difficult Terrain Support (This will need to be readded by the PF2e System)
+- Action Icons (This will need to be implemented by the PF2e System)
+
+## [6.8.1] - 2024-12-13
+
+### Fixed
+
+- Fixed a problem where Sequencer appears to be changing PixiJS GLTexture Index
+
+## [6.8.0] - 2024-12-13
+
+### Added
+
+- Added they Wayfinder object (`canvas.wayfinder`) to the canvas
+  - This is created when the canvas is ready and stores information about the current scene such as the bounds, grid, and walls. When the canvas is torn down the memory is freed and the object is cleared.
+- Wall creation, deletion, or updates are passed to the Wayfinder object
+  - This is used to keep the stored data about the walls for collision detection up to date.
+- Added [QuadTree](https://en.wikipedia.org/wiki/Quadtree)
+  - This is a bit complicated to explain but it's an efficient way to store objects in 2D space and allows you to retrieve objects in a certain region without checking every object, this is used to store information about the walls for collision detection.
+- If someone is using Wayfinder to find a path while moving a token, the full path is now transmitted
+
+### Changed
+
+- Changed data from f32 to f65 to match JavaScript's Number
+- The explored texture is passed to the Wayfinder object to read the pixel data in WebAssembly space
+  - This is to prevent reading the data in JavaScript space and then passing the raw data to WebAssembly space which can be slow.
+- Collision detection is handled in the same fashion as Foundry now
+  - It's a single test from the center of the token to the center of where the token will be when moved. This does mean that tokens that take up more than one grid can probably pass through smaller pathways but these are "valid" moves according to Foundry for the time being.
+- If you are using the regular ruler to measure distances, Wayfinder will not interfere in any way now
+
+### Removed
+
+- Removed Physics Engine - Reduces WebAssembly from 256 KB to 99.9 KB
+
+## [6.7.2] - 2024-11-05
+
+### Added
+
+- Added known module conflicts.
+
+### Changed
+
+- Action icons will only display if the grid's scale is set to 5 ft.
+
+## [6.7.1] - 2024-11-05
+
+### Added
+
+- Added a custom font that is used for the action icons.
+
+### Fixed
+
+- A problem with it locking up when trying to move a create with 0 land speed.
+
+## [6.7.0] - 2024-11-04
+
+### Added
+
+- Action Icons, when enabled an icon will be display when moving a token that represents how many strides it will cost based on the token's land speed.
+- Difficult Terrain, when enabled it will show the cost of moving through difficult terrain. (Does not impact pathfinding at the moment)
+- Movement History, when enabled it will keep track of a token's movement during combat and reset at the start of the token's turn. (Only works with tokens in the encounter tracker at the moment)
+  - The GM can reset a token's movement history by right-clicking the combatant in the encounter tracker and selecting the `Clear Movement History` option. If you are using PF2e HUD's encounter tracker press `Ctrl` to find this option.
+
+## [6.6.1] - 2024-10-21
+
+### Fixed
+
+- Oops, mixed up X/Y coordinates as X/X coordinates
+
+## [6.6.0] - 2024-10-21
+
+### Changed
+
+- Pathfinding toggle is now a compass
+- When adding a waypoint the entire found path will be added as multiple waypoints
+
+### Fixed
+
+- Make sure found path is properly snapped to the grid
+- Fixed a problem with checking fog exploration where it was slightly off when checking pixels
+- Improved Fog Exploration
+
+[14.0.1]: https://github.com/7H3LaughingMan/wayfinder/compare/v14.0.0...v14.0.1
+[14.0.0]: https://github.com/7H3LaughingMan/wayfinder/compare/v13.1.1...v14.0.0
+[13.1.1]: https://github.com/7H3LaughingMan/wayfinder/compare/v13.1.0...v13.1.1
+[13.1.0]: https://github.com/7H3LaughingMan/wayfinder/compare/v13.0.3...v13.1.0
+[13.0.3]: https://github.com/7H3LaughingMan/wayfinder/compare/v13.0.2...v13.0.3
+[13.0.2]: https://github.com/7H3LaughingMan/wayfinder/compare/v13.0.1...v13.0.2
+[13.0.1]: https://github.com/7H3LaughingMan/wayfinder/compare/v13.0.0...v13.0.1
+[13.0.0]: https://github.com/7H3LaughingMan/wayfinder/compare/v7.1.0...v13.0.0
+[7.1.0]: https://github.com/7H3LaughingMan/wayfinder/compare/v7.0.0...v7.1.0
+[7.0.0]: https://github.com/7H3LaughingMan/wayfinder/compare/v6.8.1...v7.0.0
+[6.8.1]: https://github.com/7H3LaughingMan/wayfinder/compare/v6.8.0...v6.8.1
+[6.8.0]: https://github.com/7H3LaughingMan/wayfinder/compare/v6.7.2...v6.8.0
+[6.7.2]: https://github.com/7H3LaughingMan/wayfinder/compare/v6.7.1...v6.7.2
+[6.7.1]: https://github.com/7H3LaughingMan/wayfinder/compare/v6.7.0...v6.7.1
+[6.7.0]: https://github.com/7H3LaughingMan/wayfinder/compare/v6.6.1...v6.7.0
+[6.6.1]: https://github.com/7H3LaughingMan/wayfinder/compare/v6.6.0...v6.6.1
+[6.6.0]: https://github.com/7H3LaughingMan/wayfinder/releases/tag/v6.6.0
