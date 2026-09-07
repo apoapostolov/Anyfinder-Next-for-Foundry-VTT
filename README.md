@@ -17,6 +17,16 @@ Forked from 7H3LaughingMan's Wayfinder v14 with hex grid awareness built into th
 - Foundry VTT v14
 - lib-wrapper
 
+## Repository layout
+
+- `dist/` — Foundry runtime bundle and gridless Worker.
+- `tests/` — Node regression tests for gridless routing and integration wiring.
+- `docs/GRIDLESS-PATHFINDING.md` — gridless geometry, graph, A*, scheduling, edge cases, and optimization study.
+- `PATHFINDING-AUDIT.md` — square, hex, and gridless audit with remediation status.
+- `ingest/anyfinder/` — read-only comparison snapshot copied from the installed normal Anyfinder v14 module. It is not loaded by the Next manifest.
+
+Run `npm test` for the fixture suite and `npm run check` for JavaScript syntax validation.
+
 ## Installation
 
 Copy to `Data/modules/anyfinder-next`. Do NOT enable alongside Anyfinder.

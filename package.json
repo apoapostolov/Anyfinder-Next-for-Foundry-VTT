@@ -1,0 +1,10 @@
+{
+  "name": "anyfinder-next-for-foundry-vtt",
+  "version": "14.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check dist/anyfinder-next.js && node --check dist/anyfinder-gridless-worker.js",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

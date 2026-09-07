@@ -1,0 +1,67 @@
+{
+  "anyfinder": {
+    "controls": {
+      "pathfinding": {
+        "title": "Pathfinding",
+        "paragraph": "When active, Anyfinder attempts to find the shortest path while dragging a token."
+      }
+    },
+    "keybindings": {
+      "togglePathfinding": {
+        "name": "Toggle Anyfinder Pathfinding",
+        "hint": "Toggles your personal Anyfinder pathfinding preference without opening token controls."
+      }
+    },
+    "notifications": {
+      "pathfindingUserOn": "Anyfinder personal pathfinding preference is now ON.",
+      "pathfindingUserOff": "Anyfinder personal pathfinding preference is now OFF.",
+      "pathfindingGlobalForceNote": "World setting \"Force Pathfinding for All Players\" is active, so effective pathfinding remains ON."
+    },
+    "settings": {
+      "forcePathfindingAllPlayers": {
+        "name": "Force Pathfinding for All Players",
+        "hint": "Global switch that keeps pathfinding enabled for all players."
+      },
+      "fogExploration": {
+        "name": "Fog Exploration Restriction",
+        "hint": "When enabled, Anyfinder is limited to map areas currently explored by the user."
+      },
+      "debugMode": {
+        "name": "Debug Mode",
+        "hint": "Master debug switch. Enables technical Anyfinder logs and automatic gridless trace capture."
+      },
+      "debugLogMode": {
+        "name": "Debug Log Detail Level",
+        "hint": "Controls how much debug information is printed to console. Use Compact for shareable diagnostics, Full for deep investigation.",
+        "choices": {
+          "compact": "Compact (summary + digest)",
+          "full": "Full (verbose trace + JSON)"
+        }
+      },
+      "gridlessAllowSqueeze": {
+        "name": "Gridless Squeeze Leeway",
+        "hint": "Allow a configurable amount of token clipping against walls when finding gridless routes."
+      },
+      "gridlessSqueezeLeewayPx": {
+        "name": "Gridless Leeway (px)",
+        "hint": "How many pixels of token collision radius may be reduced for squeeze routing. Effective clearance is still clamped by minimum center clearance."
+      },
+      "gridlessMinCenterClearancePx": {
+        "name": "Gridless Minimum Center Clearance (px)",
+        "hint": "Minimum wall distance kept for token center collision in gridless routing, even when squeeze leeway is high."
+      },
+      "gridlessExactFitTolerancePx": {
+        "name": "Gridless Exact-Fit Tolerance (px)",
+        "hint": "Small collision tolerance used for near-tangent passages. Helps exact token-width corridors route without edge-sticking from precision artifacts."
+      },
+      "gridlessNodeStepPx": {
+        "name": "Gridless Node Step (px)",
+        "hint": "Sampling step for gridless path routing. Lower values improve route quality but cost more performance."
+      },
+      "gridlessDebugMaxTraces": {
+        "name": "Gridless Debug Trace Limit",
+        "hint": "Maximum number of debug traces stored in memory for `anyfinderDebugGetTraces()`."
+      }
+    }
+  }
+}

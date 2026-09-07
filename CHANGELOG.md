@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Migrated normal Anyfinder's v14 lifecycle, option-normalization, and fast-drag Worker tolerance fixes.
+- Corrected the five-argument v14 WASM pathfinding call and restored cancellation.
+- Invalidated gridless graphs and Worker results on wall, scene, and clearance-setting changes.
+- Rejected stale Worker answers using scene/settings fingerprints and current-wall collision checks.
+- Added one bounded first-request bootstrap solve to avoid an initial straight route while the Worker is cold.
+- Validated the implicit start connector and permit only same-side, clearance-increasing egress for wall-adjacent starts.
+- Prevented main-thread diagonal corner cutting and removed duplicate undirected graph-edge checks.
+- Enforced Worker time limits that were previously declared but unused.
+- Kept squeeze routing conservatively disabled when a setting is missing or malformed, matching its registered default.
+
+### Added
+
+- Preserved the installed normal Anyfinder v14 module under `ingest/anyfinder` for comparison.
+- Added gridless Worker and integration regression tests.
+- Added a complete pathfinding audit and gridless node/A* design study.
+
 ## [14.0.1] - 2026-05-12
 
 ### Fixed

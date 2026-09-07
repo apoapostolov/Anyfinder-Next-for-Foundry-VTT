@@ -424,18 +424,6 @@ function segmentKey(data, a, b, clearance, graphGuard) {
   return `${data.step}|${data.cols}x${data.rows}|c:${clearance.toFixed(2)}|g:${graphGuard.toFixed(2)}|${ax},${ay}->${bx},${by}`;
 }
 function solveSegment(payload, data, from0, to0, opt) {
-  const startedMs =
-    typeof performance !== "undefined" && typeof performance.now === "function"
-      ? performance.now()
-      : Date.now();
-  const maxTimeMs = Math.max(10, Number(opt.maxTimeMs) || 90);
-  const timeCapHit = () => {
-    const now =
-      typeof performance !== "undefined" && typeof performance.now === "function"
-        ? performance.now()
-        : Date.now();
-    return now - startedMs > maxTimeMs;
-  };
   const settings = payload.settings;
   const allowSqueeze = !!settings.gridlessAllowSqueeze;
   const leeway = Number(settings.gridlessSqueezeLeewayPx) || 0;
@@ -450,7 +438,6 @@ function solveSegment(payload, data, from0, to0, opt) {
   const endpointGuard = Math.max(0, Math.min(cornerExtra, clearance * 0.35));
   const graphGuard = 0;
   const graph = getWalkGraph(data, clearance, graphGuard, exactTol);
-  if (timeCapHit()) return { path: null, reason: "time_cap_hit" };
   const ec = new Map();
   const ctx = { walls: data.walls, sceneRect: data.sceneRect };
   let from = from0;
@@ -595,7 +582,6 @@ function solveSegment(payload, data, from0, to0, opt) {
   const closed = new Uint8Array(N);
   let solvedWithFallback = false;
   let solved = false;
-  let timedOut = false;
   let bestCame = came;
   while (open.size > 0 && iter < iterCap) {
     let curr = open.pop();
@@ -603,10 +589,6 @@ function solveSegment(payload, data, from0, to0, opt) {
     if (closed[curr]) continue;
     closed[curr] = 1;
     iter++;
-    if ((iter & 63) === 0 && timeCapHit()) {
-      timedOut = true;
-      break;
-    }
     if (curr === GOAL) break;
     if (curr === START) {
       const gCurr = gScore[curr];
@@ -708,7 +690,7 @@ function solveSegment(payload, data, from0, to0, opt) {
     }
   }
   solved = Number.isFinite(gScore[GOAL]);
-  if (!solved && !timedOut) {
+  if (!solved) {
     gScoreFallback.fill(Infinity);
     fScoreFallback.fill(Infinity);
     cameFallback.fill(-1);
@@ -719,10 +701,6 @@ function solveSegment(payload, data, from0, to0, opt) {
     let iterFallback = 0;
     while (openFallback.size && iterFallback < iterCap) {
       iterFallback++;
-      if ((iterFallback & 63) === 0 && timeCapHit()) {
-        timedOut = true;
-        break;
-      }
       let curr = -1;
       let best = Infinity;
       for (const i of openFallback) {
@@ -814,7 +792,7 @@ function solveSegment(payload, data, from0, to0, opt) {
   if (!solved)
     return {
       path: null,
-      reason: timedOut ? "time_cap_hit" : iter >= iterCap ? "iter_cap_hit" : "no_route",
+      reason: iter >= iterCap ? "iter_cap_hit" : "no_route",
     };
   const raw = [];
   let c = GOAL;
@@ -875,7 +853,6 @@ function solve(payload) {
       }));
   }
   const full = [];
-  let lastFailReason = "no_route";
   for (const opt of ladder) {
     const data = getSceneStepData(payload, opt.step);
     if (!data) continue;
@@ -900,10 +877,9 @@ function solve(payload) {
       from = to;
     }
     if (ok) return { path: full, reason: null, step: data.step };
-    lastFailReason = failReason;
     if (interactiveFast && failReason === "no_route") break;
   }
-  return { path: null, reason: lastFailReason, step: baseStep };
+  return { path: null, reason: "no_route", step: baseStep };
 }
 
 self.onmessage = (event) => {
@@ -920,9 +896,6 @@ self.onmessage = (event) => {
       type: "solve_result",
       requestId,
       tokenId,
-      sceneId: payload?.scene?.sceneId ?? null,
-      wallRevision: payload?.scene?.wallRevision ?? null,
-      fingerprint: payload?.fingerprint ?? null,
       path: null,
       reason: "worker_error",
       error: String(err),
@@ -939,9 +912,6 @@ self.onmessage = (event) => {
     tokenId,
     start: payload.start,
     target,
-    sceneId: payload?.scene?.sceneId ?? null,
-    wallRevision: payload?.scene?.wallRevision ?? null,
-    fingerprint: payload?.fingerprint ?? null,
     step: result.step,
     path: result.path,
     reason: result.reason,

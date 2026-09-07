@@ -1,0 +1,3 @@
+.codex-backups/
+.vscode/
+debug/*.json

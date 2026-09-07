@@ -992,7 +992,8 @@ fn(pn), $(), Hooks.once("init", () => {
 		scope: "world",
 		config: !0,
 		type: Boolean,
-		default: !1
+		default: !1,
+		onChange: () => anxOnGridlessSettingChanged()
 	}), game.settings.register("anyfinder-next", "gridlessSqueezeLeewayPx", {
 		name: "Gridless Leeway (px)",
 		hint: "Pixels of token collision radius reducible for squeeze routing.",
@@ -1000,7 +1001,8 @@ fn(pn), $(), Hooks.once("init", () => {
 		config: !0,
 		type: Number,
 		range: { min: 0, max: 100, step: 1 },
-		default: 8
+		default: 8,
+		onChange: () => anxOnGridlessSettingChanged()
 	}), game.settings.register("anyfinder-next", "gridlessNodeStepPx", {
 		name: "Gridless Node Step (px)",
 		hint: "Sampling step for gridless path routing. Lower = better quality, higher = faster.",
@@ -1008,7 +1010,8 @@ fn(pn), $(), Hooks.once("init", () => {
 		config: !0,
 		type: Number,
 		range: { min: 16, max: 160, step: 4 },
-		default: 40
+		default: 40,
+		onChange: () => anxOnGridlessSettingChanged()
 	}), game.settings.register("anyfinder-next", "gridlessMinCenterClearancePx", {
 		name: "Gridless Minimum Center Clearance (px)",
 		hint: "Minimum wall distance kept for token center in gridless routing.",
@@ -1016,7 +1019,8 @@ fn(pn), $(), Hooks.once("init", () => {
 		config: !0,
 		type: Number,
 		range: { min: 0, max: 32, step: 1 },
-		default: 4
+		default: 4,
+		onChange: () => anxOnGridlessSettingChanged()
 	}), game.settings.register("anyfinder-next", "gridlessExactFitTolerancePx", {
 		name: "Gridless Exact-Fit Tolerance (px)",
 		hint: "Small collision tolerance for near-tangent passages.",
@@ -1024,7 +1028,8 @@ fn(pn), $(), Hooks.once("init", () => {
 		config: !0,
 		type: Number,
 		range: { min: 0, max: 3, step: 0.05 },
-		default: 0.75
+		default: 0.75,
+		onChange: () => anxOnGridlessSettingChanged()
 	}), game.settings.register("anyfinder-next", "debugMode", {
 		name: "Debug Mode",
 		hint: "Master debug switch. Enables technical logs and trace capture.",
@@ -1048,76 +1053,93 @@ fn(pn), $(), Hooks.once("init", () => {
 		type: Number,
 		range: { min: 20, max: 1000, step: 10 },
 		default: 200
-	}), game.keybindings.register("anyfinder-next", "togglePathfinding", {
+        }), game.keybindings.register("anyfinder-next", "togglePathfinding", {
 		name: "Toggle Anyfinder Next Pathfinding",
 		hint: "Toggles your personal pathfinding preference without opening token controls.",
 		editable: [{ key: "KeyP", modifiers: ["Shift"] }],
-		onDown: () => {
-			const v = !game.settings.get("anyfinder-next", "enablePathfinding");
-			game.settings.set("anyfinder-next", "enablePathfinding", v);
-		},
-		precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
-	});
+                onDown: () => anxTogglePathfindingKeybind(),
+                precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
+        });
 }), Hooks.once("ready", () => {
-	libWrapper.register("anyfinder-next", "CONFIG.Token.objectClass.prototype.findMovementPath", function(e, t, n) {
-		if ((game.settings.get("anyfinder-next", "forcePathfindingAllPlayers") || game.settings.get("anyfinder-next", "enablePathfinding")) && canvas.anyfinder && canvas.scene && !n?.constrainOptions?.ignoreWalls && !n?.constrainOptions?.ignoreCost) {
-			if (canvas.grid.isGridless && typeof anxFindPathWithFallback === "function") {
-				return {
-					result: void 0,
-					promise: anxFindPathWithFallback(this, t, n),
-					cancel: () => {}
-				};
-			}
-			let e = Array.isArray(n?.constrainOptions?.history) ? n.constrainOptions.history : n?.constrainOptions?.history ? this.document.movementHistory : [], r = new i();
-			return {
-				result: void 0,
-				promise: canvas.anyfinder.findMovementPath(r, this.document, t, game.settings.get("anyfinder-next", "fogExploration") ? this.document.sight.enabled && canvas.fog.tokenVision && canvas.fog.fogExploration : !1, this.document.measureMovementPath(e)),
-				cancel: () => {
-					r.cancel();
-				}
-			};
-		}
-		return e(t, n);
-	}), canvas.fog.addEventListener("explored", function() {
-		canvas.anyfinder?.updateFog();
-	});
+        anxExposeDebugApi();
+        anxExposePublicApi();
+        anxNormalizeSettings();
+        if (!globalThis.libWrapper || typeof libWrapper.register != "function") {
+                ui.notifications?.warn("Anyfinder Next: lib-wrapper missing. Using Foundry pathfinding.");
+                anxDebugLog("lib-wrapper missing; wrapper not installed.");
+                return;
+        }
+        try {
+                libWrapper.register("anyfinder-next", "CONFIG.Token.objectClass.prototype.findMovementPath", function(e, t, n) {
+                        if (!anxShouldUsePathfinding(n, this))
+                                return e(t, n);
+                        const r = anxIsStrictGridlessScene() ? null : new i();
+                        return {
+                                result: void 0,
+                                promise: anxFindPathWithFallback(this, t, n, r),
+                                cancel: () => r?.cancel()
+                        };
+                });
+        } catch (e) {
+                ui.notifications?.warn("Anyfinder Next: failed to install movement wrapper. Using Foundry pathfinding.");
+                anxDebugLog("Wrapper registration failed.", e);
+                return;
+        }
+        canvas.fog?.addEventListener("explored", function() {
+                canvas.anyfinder?.updateFog();
+        });
 }), Hooks.on("getSceneControlButtons", (e) => {
-	e.tokens.tools.pathfinding = {
+        if (!e.tokens?.tools)
+                return;
+        e.tokens.tools.pathfinding = {
 		name: "pathfinding",
 		order: 3,
 		title: "anyfinder-next.controls.pathfinding.title",
 		icon: "fa-duotone fa-solid fa-compass",
 		toggle: !0,
-		active: game.settings.get("anyfinder-next", "forcePathfindingAllPlayers") || game.settings.get("anyfinder-next", "enablePathfinding"),
+                active: anxIsPathfindingEnabledInScene(),
 		toolclip: {
 			src: "modules/anyfinder-next/toolclips/pathfinding.webm",
 			heading: "anyfinder-next.controls.pathfinding.title",
 			items: foundry.applications.ui.SceneControls.buildToolclipItems([{ paragraph: "anyfinder-next.controls.pathfinding.paragraph" }])
 		},
 		onChange(e, t) {
-			t !== void 0 && game.settings.set("anyfinder-next", "enablePathfinding", t);
-		}
-	};
+                        t !== void 0 && game.settings.set("anyfinder-next", "enablePathfinding", !!t);
+                }
+        };
 }), Hooks.on("canvasReady", (e) => {
-	e.scene && (e.anyfinder = new a());
+        anxInvalidateGridlessCache();
+        anxIsStrictGridlessScene() && anxEnsureGridlessWorker();
+        e.scene && (e.anyfinder = new a(), setTimeout(() => {
+                try {
+                        anxWarmGridlessSceneCache();
+                        anxWarmGridlessWalkGraphsAsync();
+                } catch (t) {
+                        anxDebugLog("Gridless cache warmup failed.", t);
+                }
+        }, 0));
 }), Hooks.on("canvasTearDown", (e) => {
-	e.anyfinder?.free(), e.anyfinder = void 0;
+        anxPathCaptureEnabled() && anxPathCaptureState.traces.length > 0 && anxDebugWriteSessionLog();
+        anxDebugSessionFilename = null;
+        anxInvalidateGridlessCache();
+        anxGridlessPendingMovement.clear();
+        anxGridlessLatestTraceByToken.clear();
+        anxTerminateGridlessWorker();
+        e.anyfinder?.free(), e.anyfinder = void 0;
 }), Hooks.on("createRegion", (e) => {
-	e.parent == game.scenes.current && canvas.anyfinder?.addRegion(e);
+        e.parent == game.scenes.current && canvas.anyfinder?.addRegion(e);
 }), Hooks.on("deleteRegion", (e) => {
 	e.parent == game.scenes.current && canvas.anyfinder?.deleteRegion(e);
 }), Hooks.on("updateRegion", (e) => {
 	e.parent == game.scenes.current && canvas.anyfinder?.updateRegion(e);
 }), Hooks.on("createWall", (e) => {
-	e.parent == game.scenes.current && canvas.anyfinder?.addWall(e);
+        e.parent == game.scenes.current && (anxInvalidateGridlessCache(), canvas.anyfinder?.addWall(e));
 }), Hooks.on("deleteWall", (e) => {
-	e.parent == game.scenes.current && canvas.anyfinder?.deleteWall(e);
+        e.parent == game.scenes.current && (anxInvalidateGridlessCache(), canvas.anyfinder?.deleteWall(e));
 }), Hooks.on("updateWall", (e) => {
-	e.parent == game.scenes.current && canvas.anyfinder?.updateWall(e);
+        e.parent == game.scenes.current && (anxInvalidateGridlessCache(), canvas.anyfinder?.updateWall(e));
 });
 //#endregion
-
-//# sourceMappingURL=wayfinder.js.map
 
 const ANX_MODULE_ID = "anyfinder-next";
 const ANX_SCENE_FLAG_PATHFINDING_ENABLED = "pathfindingEnabled";
@@ -1127,7 +1149,7 @@ const ANX_SETTING_DEFAULTS = {
   forcePathfindingAllPlayers: !0,
   fogExploration: !0,
   debugMode: !1,
-  gridlessAllowSqueeze: !0
+  gridlessAllowSqueeze: !1
 };
 const ANX_STRING_SETTING_DEFAULTS = {
   debugLogMode: "compact"
@@ -1179,7 +1201,8 @@ const anxGridlessWorkerState = {
   resultByToken: /* @__PURE__ */ new Map(),
   lastGoodByToken: /* @__PURE__ */ new Map(),
   displayedPathByToken: /* @__PURE__ */ new Map(),
-  lastDiagByToken: /* @__PURE__ */ new Map()
+  lastDiagByToken: /* @__PURE__ */ new Map(),
+  bootstrapByToken: /* @__PURE__ */ new Set()
 };
 function anxNowMs() {
   return typeof performance < "u" && typeof performance.now == "function" ? performance.now() : Date.now();
@@ -1840,11 +1863,11 @@ function anxDebugWriteSessionLog() {
       return;
     if (!anxDebugSessionFilename) {
       const B = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      anxDebugSessionFilename = `anx-debug-${B}.json`;
+      anxDebugSessionFilename = `anyfinder-next-debug-${B}.json`;
     }
-    const C = anxDebugSessionFilename, i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleVersion: "13.0.0", traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
+    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.1", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
     const fp = typeof foundry < "u" ? foundry?.applications?.apps?.FilePicker?.implementation : null;
-    fp && typeof fp.upload == "function" ? fp.upload("data", "modules/anx/debug", D, {}) : console.log("[Anyfinder] FilePicker unavailable — cannot write debug log to server.");
+    fp && typeof fp.upload == "function" ? fp.upload("data", `modules/${ANX_MODULE_ID}/debug`, D, {}) : console.log("[Anyfinder Next] FilePicker unavailable — cannot write debug log to server.");
   } catch {
   }
 }
@@ -1874,7 +1897,7 @@ function anxTerminateGridlessWorker() {
     anxGridlessWorkerState.worker && anxGridlessWorkerState.worker.terminate();
   } catch {
   }
-  anxGridlessWorkerState.worker = null, anxGridlessWorkerState.seq = 0, anxGridlessWorkerState.inflightByToken.clear(), anxGridlessWorkerState.latestPayloadByToken.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear();
+  anxGridlessWorkerState.worker = null, anxGridlessWorkerState.seq = 0, anxGridlessWorkerState.inflightByToken.clear(), anxGridlessWorkerState.latestPayloadByToken.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear();
 }
 function anxDispatchWorkerSolveIfIdle(I) {
   const A = anxGridlessWorkerState.worker;
@@ -1917,6 +1940,9 @@ function anxEnsureGridlessWorker() {
         t: anxNowMs(),
         start: g.start,
         target: g.target,
+        sceneId: g.sceneId ?? null,
+        wallRevision: Number(g.wallRevision),
+        fingerprint: g.fingerprint ?? null,
         step: g.step,
         path: Array.isArray(g.path) ? g.path : null,
         reason: g.reason ?? null,
@@ -1944,15 +1970,23 @@ function anxQueueGridlessWorkerSolve(I, A) {
     return !1;
   return anxGridlessWorkerState.latestPayloadByToken.set(I, A), anxDispatchWorkerSolveIfIdle(I), !0;
 }
-function anxTryConsumeWorkerResult(I, A, g, B) {
+function anxTryConsumeWorkerResult(I, A, g, B, C2 = null) {
   const C = Math.max(6, Math.min(24, Number(B) * 0.35 || 12)), i = C * C, E = anxGridlessWorkerState.resultByToken.get(I);
-  if (E && Array.isArray(E.path) && E.path.length >= 1 && E.t && anxNowMs() - E.t <= 1200) {
-    const D = anxDistanceSquared(E.start || {}, A), o = Math.max(1.5, Math.min(4, Number(B) * 0.08 || 2.5)), n = o * o, m = anxDistanceSquared(E.target || {}, g);
+  if (E && Array.isArray(E.path) && E.path.length >= 1 && E.t && anxNowMs() - E.t <= 5e3) {
+    if (C2 && (E.sceneId !== C2.scene?.sceneId || E.wallRevision !== Number(C2.scene?.wallRevision) || E.fingerprint !== C2.fingerprint)) {
+      anxGridlessWorkerState.resultByToken.delete(I);
+      return null;
+    }
+    const D = anxDistanceSquared(E.start || {}, A), o = Math.max(24, Math.min(160, Number(B) * 1.2 || 60)), n = o * o, m = anxDistanceSquared(E.target || {}, g);
     if (D <= i && m <= n) {
       anxGridlessWorkerState.resultByToken.delete(I);
       const O = anxBuildWorkerOverlayPath(A, g, E.path);
-      if (O)
-        return O;
+      if (O) {
+        const W = C2?.settings, p = C2?.token, T = Math.max(Number(W?.gridlessMinCenterClearancePx) || 0, (Number(p?.radiusPx) || 0) - (W?.gridlessAllowSqueeze ? Number(W?.gridlessSqueezeLeewayPx) || 0 : 0)), x = Math.max(0, Math.min(Number(p?.cornerExtraPx) || 0, T * 0.35)), _ = anxValidatePathCollisionFromStart(O, A, anxGetBlockingWallSegments(), T, canvas?.dimensions?.sceneRect, x);
+        if (_.blockedPointIndex < 0 && _.blockedSegmentIndex < 0 && !_.startConnectorBlocked)
+          return O;
+        anxDebugLog("Rejected worker path after current-geometry validation.", _);
+      }
     }
   }
   return null;
@@ -2003,17 +2037,35 @@ function anxBuildWorkerSolvePayload(I, A, g, B, C) {
       cornerExtraPx: anxGetTokenCornerExtraPx(I)
     },
     settings: {
-      gridlessAllowSqueeze: anxGetBoolSetting("gridlessAllowSqueeze", !0),
+      gridlessAllowSqueeze: anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze),
       gridlessSqueezeLeewayPx: anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100),
       gridlessMinCenterClearancePx: anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32),
       gridlessNodeStepPx: anxGetNumberSetting("gridlessNodeStepPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessNodeStepPx, 16, 160),
       gridlessExactFitTolerancePx: anxGetGridlessExactFitTolerancePx()
     }
   };
+  D.fingerprint = [
+    D.scene.sceneId,
+    D.scene.wallRevision,
+    D.token.radiusPx.toFixed(3),
+    D.token.cornerExtraPx.toFixed(3),
+    D.settings.gridlessAllowSqueeze ? 1 : 0,
+    D.settings.gridlessSqueezeLeewayPx,
+    D.settings.gridlessMinCenterClearancePx,
+    D.settings.gridlessNodeStepPx,
+    D.settings.gridlessExactFitTolerancePx
+  ].join("|");
   return D.waypoints.length ? D : null;
 }
 function anxInvalidateGridlessCache() {
-  anxGridlessCache.wallRevision += 1, anxGridlessCache.dataByStep.clear(), anxGridlessLastPathCache.clear(), anxGridlessDragReuseCache.clear(), anxGridlessFailCache.clear(), anxGridlessSolveRateCache.clear(), anxGridlessInteractiveBurstState.clear(), anxGridlessDragRegressionState.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear();
+  anxGridlessCache.wallRevision += 1, anxGridlessCache.dataByStep.clear(), anxGridlessLastPathCache.clear(), anxGridlessDragReuseCache.clear(), anxGridlessFailCache.clear(), anxGridlessSolveRateCache.clear(), anxGridlessInteractiveBurstState.clear(), anxGridlessDragRegressionState.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear();
+}
+function anxOnGridlessSettingChanged() {
+  anxInvalidateGridlessCache();
+  if (anxIsStrictGridlessScene())
+    setTimeout(() => {
+      anxWarmGridlessSceneCache(), anxWarmGridlessWalkGraphsAsync();
+    }, 0);
 }
 function anxGetBoolSetting(I, A) {
   try {
@@ -2582,6 +2634,43 @@ function anxValidatePathCollision(I, A, g, B, C = 0) {
     blockedSegmentIndex: E2
   };
 }
+function anxIsSafeGridlessStartEgress(I, A, g, B, C, i = 0) {
+  if (!I || !A || !anxPointInsideScene(I, C) || !anxPointInsideScene(A, C))
+    return !1;
+  if (!anxIsEdgeBlocked(I, A, new Map(), B, g, C, i))
+    return !0;
+  if (!anxIsPointBlocked(I, g, B, C, i) || anxIsPointBlocked(A, g, B, C, i))
+    return !1;
+  for (const n of g)
+    if (anxSegmentsIntersect(I, A, n.a, n.b))
+      return !1;
+  const E = Math.max(0, B - anxGetGridlessExactFitTolerancePx()), D = Math.max(0, E + i), o = D * D, overlappingWalls = new Set(g.filter((n) => anxPointToSegmentDistanceSquared(I, n.a, n.b) <= o));
+  if (!overlappingWalls.size)
+    return !1;
+  let improved = !1;
+  for (const n of g) {
+    const startsOverlapping = overlappingWalls.has(n);
+    let previousDistance = anxPointToSegmentDistanceSquared(I, n.a, n.b);
+    for (let m = 1; m <= 6; m++) {
+      const O = m / 6, W = { x: I.x + (A.x - I.x) * O, y: I.y + (A.y - I.y) * O }, currentDistance = anxPointToSegmentDistanceSquared(W, n.a, n.b);
+      if (startsOverlapping) {
+        if (currentDistance + 0.25 < previousDistance)
+          return !1;
+      } else if (currentDistance <= o)
+        return !1;
+      previousDistance = currentDistance;
+    }
+    startsOverlapping && previousDistance > anxPointToSegmentDistanceSquared(I, n.a, n.b) + 1 && (improved = !0);
+  }
+  return improved;
+}
+function anxValidatePathCollisionFromStart(I, A, g, B, C, i = 0) {
+  const E = anxValidatePathCollision(I, g, B, C, i), D = Array.isArray(I) && I.length > 0 ? I[0] : null;
+  return {
+    ...E,
+    startConnectorBlocked: D ? !anxIsSafeGridlessStartEgress(A, D, g, B, C, i) : !1
+  };
+}
 function anxGetGridlessSceneData(I) {
   var B;
   const A = canvas?.dimensions?.sceneRect;
@@ -2642,7 +2731,7 @@ function anxWarmGridlessSceneCache() {
   }
 }
 function anxGetLikelyGridlessWarmProfiles() {
-  const I = anxGetBoolSetting("gridlessAllowSqueeze", !0), A = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), g = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), B = canvas?.tokens?.placeables ?? [], C = [];
+  const I = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), A = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), g = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), B = canvas?.tokens?.placeables ?? [], C = [];
   for (const i of B.slice(0, 8)) {
     const E = anxGetTokenRadiusPx(i), D = Math.max(g, E - (I ? A : 0)), o = anxGetTokenCornerExtraPx(i), n = Math.max(0, Math.min(o, D * 0.75)), m = Math.max(0, n * 0.6);
     C.push({
@@ -2748,22 +2837,26 @@ function anxGetWalkGraphForClearance(I, A, g = 0, B = null) {
     [-1, 1],
     [0, 1],
     [1, 1]
-  ], D = new Map();
+  ], forwardDirections = [4, 5, 6, 7], oppositeDirections = [7, 6, 5, 4, 3, 2, 1, 0], D = new Map();
   for (let o = 0; o < I.nodes.length; o++) {
     if (!C[o])
       continue;
     const n = o % I.cols, m = Math.floor(o / I.cols);
-    let O = 0;
-    for (let W = 0; W < E.length; W++) {
+    for (const W of forwardDirections) {
       const [p, T] = E[W], x = n + p, _ = m + T;
       if (x < 0 || _ < 0 || x >= I.cols || _ >= I.rows)
         continue;
       const P = _ * I.cols + x;
       if (!C[P])
         continue;
-      anxIsEdgeBlocked(I.nodes[o], I.nodes[P], D, A, I.walls, I.sceneRect, g, B) || (O |= 1 << W);
+      if (p !== 0 && T !== 0) {
+        const orthogonalA = m * I.cols + (n + p), orthogonalB = (m + T) * I.cols + n;
+        if (!C[orthogonalA] || !C[orthogonalB])
+          continue;
+      }
+      if (!anxIsEdgeBlocked(I.nodes[o], I.nodes[P], D, A, I.walls, I.sceneRect, g, B))
+        i[o] |= 1 << W, i[P] |= 1 << oppositeDirections[W];
     }
-    i[o] = O;
   }
   const o = {
     mask: C,
@@ -2794,7 +2887,7 @@ function anxFindGridlessSegmentPath(I, A, g, B = {}, C2 = null) {
     rows: E.rows,
     walls: E.walls.length
   });
-  const D = Number.isFinite(E.step) ? E.step : i, o = anxGetTokenRadiusPx(I), n = anxGetBoolSetting("gridlessAllowSqueeze", !0), m = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), O = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), W = Math.max(O, o - (n ? m : 0)), p = anxGetTokenCornerExtraPx(I), T = Number.isFinite(B.cornerScale) ? B.cornerScale : 0.75, x = Math.max(0, Math.min(p, W * T)), graphGuard = Math.max(0, x * 0.6), Q2 = anxGetWalkGraphForClearance(E, W, graphGuard, S2), _ = Q2.mask, edgeBits = Q2.edgeBits, P = { walls: E.walls, sceneRect: E.sceneRect }, j = new Map();
+  const D = Number.isFinite(E.step) ? E.step : i, o = anxGetTokenRadiusPx(I), n = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), m = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), O = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), W = Math.max(O, o - (n ? m : 0)), p = anxGetTokenCornerExtraPx(I), T = Number.isFinite(B.cornerScale) ? B.cornerScale : 0.75, x = Math.max(0, Math.min(p, W * T)), graphGuard = Math.max(0, x * 0.6), Q2 = anxGetWalkGraphForClearance(E, W, graphGuard, S2), _ = Q2.mask, edgeBits = Q2.edgeBits, P = { walls: E.walls, sceneRect: E.sceneRect }, j = new Map();
   C2 && (C2.clearance = {
     tokenRadiusPx: o,
     squeezeEnabled: n,
@@ -2947,7 +3040,7 @@ function anxFindGridlessSegmentPath(I, A, g, B = {}, C2 = null) {
   return anxSetCachedGridlessSegmentPath(E, segmentCacheKey, jt), { path: jt, reason: null };
 }
 function anxFindGridlessPath(I, A, g, B2 = null) {
-  const B = Array.isArray(g.history) ? g.history : g.history ? I.document.movementHistory : [], C2 = Array.isArray(A) ? A : [];
+  const B = anxGetConstraintHistory(g, I), C2 = Array.isArray(A) ? A : [];
   if (!C2.length)
     return { path: [], reason: null };
   const i = B.length > 0 ? B[B.length - 1] : anxGetTokenCenter(I), E = anxGetNumberSetting("gridlessNodeStepPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessNodeStepPx, 16, 160), D2 = anxGetGridlessSceneData(E), C = anxExpandGridlessWaypointsForLongRoutes(i, C2, E, D2?.walls);
@@ -3063,12 +3156,13 @@ function anxFindGridlessPath(I, A, g, B2 = null) {
       if (!V)
         O = "scene_data_unavailable", x = !1;
       else {
-        const Z = anxGetTokenRadiusPx(I), $ = anxGetBoolSetting("gridlessAllowSqueeze", !0), ii = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), yt = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), xt = Math.max(yt, Z - ($ ? ii : 0)), J2 = anxGetTokenCornerExtraPx(I), ft = Number.isFinite(p.cornerScale) ? p.cornerScale : 0.75, At = Math.max(0, Math.min(J2, xt * ft)), gt = anxValidatePathCollision(D, V.walls, xt, V.sceneRect, At), Bt = gt.blockedPointIndex >= 0 || gt.blockedSegmentIndex >= 0;
+        const Z = anxGetTokenRadiusPx(I), $ = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze), ii = anxGetNumberSetting("gridlessSqueezeLeewayPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessSqueezeLeewayPx, 0, 100), yt = anxGetNumberSetting("gridlessMinCenterClearancePx", ANX_NUMBER_SETTING_DEFAULTS.gridlessMinCenterClearancePx, 0, 32), xt = Math.max(yt, Z - ($ ? ii : 0)), J2 = anxGetTokenCornerExtraPx(I), ft = Number.isFinite(p.cornerScale) ? p.cornerScale : 0.75, At = Math.max(0, Math.min(J2, xt * ft)), gt = anxValidatePathCollisionFromStart(D, i, V.walls, xt, V.sceneRect, At), Bt = gt.blockedPointIndex >= 0 || gt.blockedSegmentIndex >= 0 || gt.startConnectorBlocked;
         if (Bt)
           O = "final_path_invalid_collision", x = !1, Tt && (Tt.validation = {
             pointCount: D.length,
             blockedPointIndex: gt.blockedPointIndex,
             blockedSegmentIndex: gt.blockedSegmentIndex,
+            startConnectorBlocked: gt.startConnectorBlocked,
             scope: "attempt_final"
           });
       }
@@ -3101,7 +3195,7 @@ function anxShouldUsePathfinding(I, A = null) {
   const g = anxGetConstrainOptions(I);
   return canvas.scene && !g.ignoreWalls && !g.ignoreCost && anxIsPathfindingEnabledInScene() && !anxTokenHasPathfindingOptOut(A);
 }
-async function anxFindPathWithFallback(I, A, g) {
+async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
   const pathCapture = anxPathCaptureEnabled() ? anxBuildPathCaptureContext(I, A, g) : null, finalizePathCaptureAndReturn = (B2, C2 = {}) => (anxFinalizePathCapture(pathCapture, {
     path: B2,
     ...C2
@@ -3166,6 +3260,7 @@ async function anxFindPathWithFallback(I, A, g) {
         }
       }
       const i = n2, E = m2;
+      let bootstrapGridlessPath = !1;
       if (i && Number.isFinite(D2) && Number.isFinite(o2)) {
         const D = anxBuildWorkerSolvePayload(I, A, iStart, O2, {
           ...g,
@@ -3176,7 +3271,8 @@ async function anxFindPathWithFallback(I, A, g) {
           i,
           { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 },
           { x: D2, y: o2 },
-          O2
+          O2,
+          D
         );
         if (Array.isArray(o) && o.length >= 1) {
           anxSetDisplayedWorkerPath(i, { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 }, { x: D2, y: o2 }, o);
@@ -3208,12 +3304,17 @@ async function anxFindPathWithFallback(I, A, g) {
             }
           }, anxPushGridlessTrace(anxCloneTrace(B))), reportDragOutcome("gridless_success", !0, null, { source: "worker_result", pathLength: o.length }), o;
         }
-        if (anxGridlessWorkerState.worker)
-          return reportDragOutcome("native_fallback_after_gridless_fail", !1, "worker_pending", { source: "worker_pending_native_fallback" }), anxNativeFallback(I, A, g).result;
+        if (anxGridlessWorkerState.worker) {
+          bootstrapGridlessPath = !anxGridlessWorkerState.bootstrapByToken.has(i);
+          if (bootstrapGridlessPath)
+            anxGridlessWorkerState.bootstrapByToken.add(i);
+          else
+            return reportDragOutcome("native_fallback_after_gridless_fail", !1, "worker_pending", { source: "worker_pending_native_fallback" }), anxNativeFallback(I, A, g).result;
+        }
       }
       const C = anxFindGridlessPath(I, A, {
         ...g,
-        __anxInteractiveFast: r2
+        __anxInteractiveFast: r2 || bootstrapGridlessPath
       }, B);
       if (Array.isArray(C.path)) {
         i && anxGridlessFailCache.delete(i);
@@ -3309,11 +3410,12 @@ async function anxFindPathWithFallback(I, A, g) {
         nativeFallback: !0
       });
     const B = anxGetConstraintHistory(g, I);
-    const C = anxUseFogRestriction(I), i = I.document.measureMovementPath(B), E = canvas.anyfinder.findMovementPath(
+    const C = anxUseFogRestriction(I), measuredPath = I.document.measureMovementPath(B), cancellationToken = gridCancellationToken ?? new i(), E = canvas.anyfinder.findMovementPath(
+      cancellationToken,
       I.document,
       A,
       C,
-      i
+      measuredPath
     );
     if (!E || typeof E.then != "function")
       return anxDebugLog("Pathfinding backend returned non-promise; falling back."), finalizePathCaptureAndReturn(anxNativeFallback(I, A, g).result, {
