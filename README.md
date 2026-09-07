@@ -29,6 +29,16 @@ Forked from 7H3LaughingMan's Wayfinder v14 with hex grid awareness built into th
 
 Run `npm test` for the fixture suite and `npm run check` for JavaScript syntax validation.
 
+## Diagnosing blocked gridless movement
+
+Enable **Settings → Anyfinder Next → Record Diagnostics**. After Anyfinder prevents a movement because no verified route exists, open the browser developer console and run:
+
+```js
+anxDebugGetLastBlockedMovement()
+```
+
+The result identifies whether the route was still calculating, exceeded a search budget, could not attach to the graph, had no connected route, collided during final validation, or was changed by Foundry. It also includes relevant wall IDs and coordinates, token clearance, Worker/cache state, and the last rejected candidate. `anxDebugExplainLastFailure()` includes the same diagnosis with the solver-attempt summary. Use `anxDebugWriteSessionLog()` to save the complete trace set.
+
 ## Installation
 
 Copy to `Data/modules/anyfinder-next`. Do NOT enable alongside Anyfinder.

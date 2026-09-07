@@ -145,10 +145,37 @@ test("gridless failures fail closed at the exact requested origin", () => {
   const gridlessEnd = bundle.indexOf("if (!canvas.anyfinder)", gridlessStart);
   const gridlessBranch = bundle.slice(gridlessStart, gridlessEnd);
   assert.match(gridlessBranch, /worker_pending_fail_closed/);
-  assert.match(gridlessBranch, /Gridless route failed; blocking movement/);
+  assert.match(gridlessBranch, /anxFinalizeBlockedGridlessPath/);
   assert.doesNotMatch(gridlessBranch, /anxNativeFallback/);
-  assert.match(bundle, /C \? anxBlockedGridlessPath\(A\) : anxNativeFallback/);
+  assert.match(bundle, /i = C \? \(anxRecordGridlessRejection[\s\S]*?anxFinalizeBlockedGridlessPath/);
+  assert.match(bundle, /: anxNativeFallback\(I, A, g\)\.result/);
   assert.match(bundle, /anxFoundryPathMatchesRequestedEndpoints/);
+});
+
+test("blocked gridless movement captures actionable rejection diagnostics", () => {
+  const start = bundle.indexOf("function anxExplainGridlessFailureReason");
+  const end = bundle.indexOf("function anxBuildGridlessRejectionDiagnosis", start);
+  assert.ok(start >= 0 && end > start, "expected rejection reason helper");
+  const context = vm.createContext({});
+  vm.runInContext(`${bundle.slice(start, end)}\nthis.explain = anxExplainGridlessFailureReason;`, context);
+  assert.match(context.explain("worker_pending"), /had not finished/);
+  assert.match(context.explain("no_attach_goal"), /destination could not connect/);
+  assert.match(context.explain("foundry_collision_rejected"), /Foundry shortened or changed/);
+  assert.match(context.explain("worker_error"), /Worker failed/);
+
+  assert.match(bundle, /function anxBuildGridlessRejectionDiagnosis/);
+  assert.match(bundle, /classification: J/);
+  assert.match(bundle, /token_origin_inside_wall_clearance/);
+  assert.match(bundle, /blockedPoint: x\.blockedPointIndex/);
+  assert.match(bundle, /blockedSegment: x\.blockedSegmentIndex/);
+  assert.match(bundle, /physicalWallCrossings: P/);
+  assert.match(bundle, /relevantWalls: _\.slice\(0, 12\)/);
+  assert.match(bundle, /lastCandidateRejection/);
+  assert.match(bundle, /inFlightTarget: j\?\.target/);
+  assert.match(bundle, /queuedTarget:/);
+  assert.match(bundle, /globalThis\.anxDebugGetLastBlockedMovement/);
+  assert.match(bundle, /stage: "worker_current_geometry_validation"/);
+  assert.match(bundle, /stage: "foundry_constraint_validation"/);
 });
 
 test("gridless results are rejected when Foundry constrains the route", () => {

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Expanded fail-closed gridless diagnostics with rejection stage/classification, readable reason, direct-route collision details, relevant wall IDs and geometry, token clearance, Worker state, cache state, and the last rejected candidate.
+- Added `anxDebugGetLastBlockedMovement()` and included rejection details in failure digests and `anxDebugExplainLastFailure()` output.
 - Made gridless pathfinding fail closed: while no verified route exists, Anyfinder now returns only the exact origin and prevents release from moving the token into the first wall.
 - Removed the remaining gridless fallbacks to Foundry's partial straight-line constraint result during Worker waits, cached failures, solver failures, and exceptions.
 - Refused cached gridless routes whose destination no longer matches the current pointer, preventing release onto a stale partial route.

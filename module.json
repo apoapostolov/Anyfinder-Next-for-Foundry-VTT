@@ -2,7 +2,7 @@
   "id": "anyfinder-next",
   "title": "Anyfinder Next",
   "description": "Next-generation system-agnostic pathfinding for Foundry VTT v14. Forked from Wayfinder v14 with hex grid awareness.",
-  "version": "14.0.5",
+  "version": "14.0.6",
   "compatibility": {
     "minimum": "14",
     "verified": "14",

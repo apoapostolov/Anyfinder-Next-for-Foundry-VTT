@@ -1234,6 +1234,7 @@ const anxGridlessFailCache = /* @__PURE__ */ new Map();
 const anxGridlessSolveRateCache = /* @__PURE__ */ new Map();
 const anxGridlessInteractiveBurstState = /* @__PURE__ */ new Map();
 const anxGridlessDragRegressionState = /* @__PURE__ */ new Map();
+const anxGridlessRejectionByToken = /* @__PURE__ */ new Map();
 const anxGridlessWorkerState = {
   worker: null,
   seq: 0,
@@ -1388,6 +1389,8 @@ function anxEmitMovementObservation(I, A, g = null) {
 function anxClassifyGridlessTrace(I) {
   const A = [], g = I?.final?.outcome, B = Number(I?.summary?.elapsedMs) || Number(I?.final?.elapsedMs) || 0;
   g === "gridless_blocked_no_verified_path" && A.push("blocked_after_fail"), g === "native_fallback_after_gridless_fail" && A.push("fallback_after_fail"), g === "reused_last_valid_path" && A.push("reused_last_path"), B >= 120 && A.push("very_slow"), B >= 60 && B < 120 && A.push("slow");
+  const rejection = I?.final?.rejection;
+  rejection?.classification && A.push(`rejection:${rejection.classification}`), rejection?.stage && A.push(`stage:${rejection.stage}`), rejection?.worker?.inFlight && A.push("worker_in_flight"), Number(rejection?.directRoute?.physicalWallCrossings) > 0 && A.push("direct_route_crosses_wall"), Number(rejection?.directRoute?.blockedSegmentIndex) >= 0 && A.push("direct_route_clearance_blocked");
   const C = Array.isArray(I?.attempts) ? I.attempts : [];
   for (const i of C) {
     const E = Array.isArray(i?.segments) ? i.segments : [];
@@ -1446,6 +1449,8 @@ function anxBuildTraceDigest(I) {
     sceneId: I?.sceneId ?? null,
     outcome: I?.final?.outcome ?? "unknown",
     reason: I?.final?.reason ?? null,
+    rejectionStage: I?.final?.rejection?.stage ?? null,
+    rejectionClassification: I?.final?.rejection?.classification ?? null,
     elapsedMs: Math.round(g),
     attempts: I?.summary?.attempts ?? null,
     succeededAttempt: I?.summary?.succeededAttempt ?? null,
@@ -1491,7 +1496,8 @@ function anxBuildTraceTriage(I) {
     attempts: g.length,
     successAttempt: B?.idx ?? null,
     lastAttempt: C,
-    flags: i
+    flags: i,
+    rejection: I?.final?.rejection ?? null
   };
 }
 function anxPushFailureDigest(I) {
@@ -1508,7 +1514,7 @@ function anxDebugGetFailureDigest(I = 25) {
 }
 function anxDebugGetFailureDigestText(I = 15) {
   const A = anxDebugGetFailureDigest(I);
-  return A.map((g) => `#${g.traceId ?? "?"} token=${g.token} outcome=${g.outcome} reason=${g.reason ?? "none"} elapsed=${g.elapsedMs ?? "?"}ms flags=${Array.isArray(g.flags) && g.flags.length > 0 ? g.flags.join(",") : "none"}`).join("\n");
+  return A.map((g) => `#${g.traceId ?? "?"} token=${g.token} outcome=${g.outcome} reason=${g.reason ?? "none"} stage=${g.rejectionStage ?? "none"} class=${g.rejectionClassification ?? "none"} elapsed=${g.elapsedMs ?? "?"}ms flags=${Array.isArray(g.flags) && g.flags.length > 0 ? g.flags.join(",") : "none"}`).join("\n");
 }
 function anxDebugExplainTrace(I) {
   const A = Number(I);
@@ -1571,7 +1577,15 @@ function anxDebugGetLastTrace() {
   return I ? anxCloneTrace(I) : null;
 }
 function anxDebugClearTraces() {
-  anxGridlessDebugState.traces.length = 0, anxGridlessFailureDigest.length = 0;
+  anxGridlessDebugState.traces.length = 0, anxGridlessFailureDigest.length = 0, anxGridlessRejectionByToken.clear();
+}
+function anxDebugGetLastBlockedMovement() {
+  for (let I = anxGridlessDebugState.traces.length - 1; I >= 0; I--) {
+    const A = anxGridlessDebugState.traces[I];
+    if (A?.final?.outcome === "gridless_blocked_no_verified_path")
+      return anxCloneTrace({ traceId: A.id, tokenId: A.tokenId, ...A.final.rejection });
+  }
+  return null;
 }
 function anxDebugGetWorkerDiag(I = null) {
   const A = I ? String(I) : (() => {
@@ -1906,7 +1920,7 @@ function anxDebugWriteSessionLog() {
       const B = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       anxDebugSessionFilename = `anyfinder-next-debug-${B}.json`;
     }
-    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.5", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
+    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.6", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
     const fp = typeof foundry < "u" ? foundry?.applications?.apps?.FilePicker?.implementation : null;
     fp && typeof fp.upload == "function" ? fp.upload("data", `modules/${ANX_MODULE_ID}/debug`, D, {}) : console.log("[Anyfinder Next] FilePicker unavailable — cannot write debug log to server.");
   } catch {
@@ -1927,18 +1941,29 @@ function anxDebugGetPathTraceText(I = 10) {
   return g.map((B) => `#${B?.id ?? "?"} token=${B?.tokenName ?? B?.tokenId ?? "unknown-token"} branch=${B?.result?.branch ?? "unknown"} outcome=${B?.result?.outcome ?? "unknown"} phantom=${B?.result?.unexpectedWaypointCount ?? 0} finalOffset=${B?.result?.finalOffsetPx ?? "n/a"}px`).join("\n");
 }
 function anxExposeDebugApi() {
-  globalThis.anxDebugGetTraces = anxDebugGetTraces, globalThis.anxDebugLastTrace = anxDebugGetLastTrace, globalThis.anxDebugClearTraces = anxDebugClearTraces, globalThis.anxDebugGetFailureDigest = anxDebugGetFailureDigest, globalThis.anxDebugGetFailureDigestText = anxDebugGetFailureDigestText, globalThis.anxDebugExplainTrace = anxDebugExplainTrace, globalThis.anxDebugExplainLastFailure = anxDebugExplainLastFailure, globalThis.anxDebugGetWorkerDiag = anxDebugGetWorkerDiag, globalThis.anxDebugGetWorkerDiagText = anxDebugGetWorkerDiagText, globalThis.anxDebugGetPathTraces = anxDebugGetPathTraces, globalThis.anxDebugLastPathTrace = anxDebugLastPathTrace, globalThis.anxDebugClearPathTraces = anxDebugClearPathTraces, globalThis.anxDebugGetPathTraceText = anxDebugGetPathTraceText, globalThis.anxDebugWriteSessionLog = anxDebugWriteSessionLog;
+  globalThis.anxDebugGetTraces = anxDebugGetTraces, globalThis.anxDebugLastTrace = anxDebugGetLastTrace, globalThis.anxDebugClearTraces = anxDebugClearTraces, globalThis.anxDebugGetFailureDigest = anxDebugGetFailureDigest, globalThis.anxDebugGetFailureDigestText = anxDebugGetFailureDigestText, globalThis.anxDebugExplainTrace = anxDebugExplainTrace, globalThis.anxDebugExplainLastFailure = anxDebugExplainLastFailure, globalThis.anxDebugGetLastBlockedMovement = anxDebugGetLastBlockedMovement, globalThis.anxDebugGetWorkerDiag = anxDebugGetWorkerDiag, globalThis.anxDebugGetWorkerDiagText = anxDebugGetWorkerDiagText, globalThis.anxDebugGetPathTraces = anxDebugGetPathTraces, globalThis.anxDebugLastPathTrace = anxDebugLastPathTrace, globalThis.anxDebugClearPathTraces = anxDebugClearPathTraces, globalThis.anxDebugGetPathTraceText = anxDebugGetPathTraceText, globalThis.anxDebugWriteSessionLog = anxDebugWriteSessionLog;
 }
 function anxGetTokenCacheKey(I) {
   const A = I?.document?.id ?? I?.id;
   return A ? String(A) : null;
+}
+function anxRecordGridlessRejection(I, A) {
+  if (!anxGridlessTraceEnabled())
+    return;
+  const g = typeof I == "string" ? I : anxGetTokenCacheKey(I);
+  if (!g)
+    return;
+  anxGridlessRejectionByToken.set(g, {
+    t: anxNowMs(),
+    ...anxCloneTrace(A)
+  });
 }
 function anxTerminateGridlessWorker() {
   try {
     anxGridlessWorkerState.worker && anxGridlessWorkerState.worker.terminate();
   } catch {
   }
-  anxGridlessWorkerState.worker = null, anxGridlessWorkerState.seq = 0, anxGridlessWorkerState.inflightByToken.clear(), anxGridlessWorkerState.latestPayloadByToken.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear();
+  anxGridlessWorkerState.worker = null, anxGridlessWorkerState.seq = 0, anxGridlessWorkerState.inflightByToken.clear(), anxGridlessWorkerState.latestPayloadByToken.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear(), anxGridlessRejectionByToken.clear();
 }
 function anxDispatchWorkerSolveIfIdle(I) {
   const A = anxGridlessWorkerState.worker;
@@ -1949,9 +1974,15 @@ function anxDispatchWorkerSolveIfIdle(I) {
     return;
   anxGridlessWorkerState.latestPayloadByToken.delete(I);
   const B = ++anxGridlessWorkerState.seq;
+  const target = Array.isArray(g?.waypoints) && g.waypoints.length ? g.waypoints[g.waypoints.length - 1] : null;
   anxGridlessWorkerState.inflightByToken.set(I, {
     requestId: B,
-    sentMs: anxNowMs()
+    sentMs: anxNowMs(),
+    start: anxSanitizePoint(g?.start),
+    target: anxSanitizePoint(target),
+    sceneId: g?.scene?.sceneId ?? null,
+    wallRevision: Number(g?.scene?.wallRevision),
+    fingerprint: g?.fingerprint ?? null
   });
   try {
     A.postMessage({
@@ -1993,12 +2024,24 @@ function anxEnsureGridlessWorker() {
       i.diag && anxGridlessWorkerState.lastDiagByToken.set(B, anxCloneTrace(i.diag));
       if (i.path && i.path.length >= 1)
         anxGridlessWorkerState.lastGoodByToken.set(B, i);
+      else
+        anxRecordGridlessRejection(B, {
+          stage: "worker_solver",
+          reason: i.reason ?? i.diag?.final?.reason ?? "worker_no_path",
+          requestId: i.requestId,
+          step: i.step,
+          start: anxSanitizePoint(i.start),
+          target: anxSanitizePoint(i.target),
+          workerFinal: i.diag?.final ?? null
+        });
       if (anxGetBoolSetting("debugMode", !1) && i.diag) {
         const E2 = Array.isArray(i.diag?.attempts) ? i.diag.attempts.length : 0, D2 = Array.isArray(i.diag?.attempts) ? i.diag.attempts.reduce((o, n) => o + (Number(n?.simplifySkippedSegments) || 0), 0) : 0, o2 = i.diag?.final?.reason ?? i.reason ?? "unknown";
         console.log(`Anyfinder WorkerDiag token=${B} reason=${o2} attempts=${E2} simplifySkips=${D2}`);
       }
       anxGridlessWorkerState.resultByToken.set(B, i), anxDispatchWorkerSolveIfIdle(B);
     }, I.onerror = (A) => {
+      for (const B of anxGridlessWorkerState.inflightByToken.keys())
+        anxRecordGridlessRejection(B, { stage: "worker_error", reason: "worker_error", message: A?.message ?? String(A) });
       anxDebugLog("Gridless worker error.", A);
     }, anxGridlessWorkerState.worker = I, I;
   } catch (I) {
@@ -2015,6 +2058,14 @@ function anxTryConsumeWorkerResult(I, A, g, B, C2 = null) {
   const C = Math.max(6, Math.min(24, Number(B) * 0.35 || 12)), i = C * C, E = anxGridlessWorkerState.resultByToken.get(I);
   if (E && Array.isArray(E.path) && E.path.length >= 1 && E.t && anxNowMs() - E.t <= 5e3) {
     if (C2 && (E.sceneId !== C2.scene?.sceneId || E.wallRevision !== Number(C2.scene?.wallRevision) || E.fingerprint !== C2.fingerprint)) {
+      anxRecordGridlessRejection(I, {
+        stage: "worker_identity_validation",
+        reason: "stale_worker_result",
+        start: anxSanitizePoint(E.start),
+        target: anxSanitizePoint(E.target),
+        actual: { sceneId: E.sceneId, wallRevision: E.wallRevision, fingerprint: E.fingerprint },
+        expected: { sceneId: C2.scene?.sceneId, wallRevision: Number(C2.scene?.wallRevision), fingerprint: C2.fingerprint }
+      });
       anxGridlessWorkerState.resultByToken.delete(I);
       return null;
     }
@@ -2026,7 +2077,12 @@ function anxTryConsumeWorkerResult(I, A, g, B, C2 = null) {
         const W = C2?.settings, p = C2?.token, T = anxComputeGridlessClearancePx(Number(p?.radiusPx) || 0, W?.gridlessAllowSqueeze === !0), x = Math.max(0, Math.min(Number(p?.cornerExtraPx) || 0, T * 0.35)), _ = anxValidatePathCollisionFromStart(O, A, anxGetBlockingWallSegments(), T, canvas?.dimensions?.sceneRect, x);
         if (_.blockedPointIndex < 0 && _.blockedSegmentIndex < 0 && !_.startConnectorBlocked)
           return O;
-        anxDebugLog("Rejected worker path after current-geometry validation.", _);
+        anxRecordGridlessRejection(I, {
+          stage: "worker_current_geometry_validation",
+          reason: "worker_path_collision",
+          validation: _,
+          candidatePath: anxSanitizePointPath(O)
+        }), anxDebugLog("Rejected worker path after current-geometry validation.", _);
       }
     }
   }
@@ -2112,7 +2168,7 @@ function anxBuildWorkerSolvePayload(I, A, g, B, C) {
   return D.waypoints.length ? D : null;
 }
 function anxInvalidateGridlessCache() {
-  anxGridlessCache.wallRevision += 1, anxGridlessCache.dataByStep.clear(), anxGridlessLastPathCache.clear(), anxGridlessDragReuseCache.clear(), anxGridlessFailCache.clear(), anxGridlessSolveRateCache.clear(), anxGridlessInteractiveBurstState.clear(), anxGridlessDragRegressionState.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear();
+  anxGridlessCache.wallRevision += 1, anxGridlessCache.dataByStep.clear(), anxGridlessLastPathCache.clear(), anxGridlessDragReuseCache.clear(), anxGridlessFailCache.clear(), anxGridlessSolveRateCache.clear(), anxGridlessInteractiveBurstState.clear(), anxGridlessDragRegressionState.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear(), anxGridlessRejectionByToken.clear();
 }
 function anxOnGridlessSettingChanged() {
   anxInvalidateGridlessCache();
@@ -2477,6 +2533,10 @@ function anxGetBlockingWallSegments() {
     const g = Array.isArray(A.c) ? A.c : [0, 0, 0, 0];
     const B = Number(g[0]) || 0, C = Number(g[1]) || 0, i = Number(g[2]) || 0, E = Number(g[3]) || 0;
     return {
+      id: A.id ?? null,
+      door: A.door ?? null,
+      doorState: A.ds ?? null,
+      movementSense: A.move ?? null,
       a: { x: B, y: C },
       b: { x: i, y: E },
       minX: Math.min(B, i),
@@ -2598,7 +2658,7 @@ function anxPrepareGridlessPathForFoundry(I, A, g, B) {
     const [i, E] = I.constrainMovementPath(C, { preview: !1, ignoreWalls: !1 });
     const D = C2[C2.length - 1], o = Array.isArray(i) && i.length > 0 ? i[i.length - 1] : null, n = Array.isArray(i) && i.length > 0 ? i[0] : null;
     if (E || !Array.isArray(i) || i.length !== C.length || !n || !anxPathPointMatchesAny(n, [C2[0]], 0.01) || D && (!o || !anxPathPointMatchesAny(o, [D], 1))) {
-      anxDebugLog("Rejected gridless path that Foundry constrained.", {
+      const rejection = {
         source: B,
         inputLength: C.length,
         constrainedLength: Array.isArray(i) ? i.length : null,
@@ -2606,8 +2666,15 @@ function anxPrepareGridlessPathForFoundry(I, A, g, B) {
         expectedOrigin: { x: C2[0].x, y: C2[0].y },
         constrainedOrigin: n ? { x: n.x, y: n.y } : null,
         expectedFinal: D ? { x: D.x, y: D.y } : null,
-        constrainedFinal: o ? { x: o.x, y: o.y } : null
-      });
+        constrainedFinal: o ? { x: o.x, y: o.y } : null,
+        candidatePath: anxSanitizePointPath(C),
+        constrainedPath: anxSanitizePointPath(i)
+      };
+      anxRecordGridlessRejection(I, {
+        stage: "foundry_constraint_validation",
+        reason: "foundry_collision_rejected",
+        ...rejection
+      }), anxDebugLog("Rejected gridless path that Foundry constrained.", rejection);
       return null;
     }
     return i;
@@ -2814,6 +2881,130 @@ function anxValidatePathCollisionFromStart(I, A, g, B, C, i = 0) {
     ...E,
     startConnectorBlocked: D ? !anxIsSafeGridlessStartEgress(A, D, g, B, C, i) : !1
   };
+}
+function anxExplainGridlessFailureReason(I) {
+  const A = {
+    worker_pending: "The matching Worker calculation had not finished.",
+    no_route: "The search graph found no connected route to the destination.",
+    time_cap_hit: "The search exceeded its time budget before proving a route.",
+    iter_cap_hit: "A* exceeded its iteration budget before proving a route.",
+    no_attach_start: "The token origin could not connect safely to the sampled graph.",
+    no_attach_goal: "The destination could not connect safely to the sampled graph.",
+    start_blocked_no_node: "The token origin is blocked and no safe nearby graph node was found.",
+    goal_blocked_no_node: "The destination is blocked and no safe nearby graph node was found.",
+    final_path_invalid_collision: "The completed route failed Anyfinder's final collision validation.",
+    foundry_collision_rejected: "Foundry shortened or changed the candidate route during its authoritative collision check.",
+    worker_path_collision: "A Worker route collided with the current wall geometry when it returned.",
+    stale_worker_result: "The Worker route belonged to older scene geometry or settings.",
+    worker_error: "The gridless Worker failed while calculating the route.",
+    worker_no_path: "The Worker returned without a usable route or a more specific failure reason.",
+    recent_failed_target: "A recent matching request failed and no current verified route was available.",
+    scene_data_unavailable: "Gridless scene geometry was unavailable.",
+    exception: "Pathfinding raised an unexpected exception."
+  };
+  return A[I] ?? "No complete, current, collision-verified route was available.";
+}
+function anxBuildGridlessRejectionDiagnosis(I, A, g, B, C) {
+  const i = anxNowMs(), E = anxGetTokenCacheKey(I), D = Array.isArray(g) ? g : [], o = D[0] ?? (Array.isArray(A) && A.length ? anxWaypointToMovementOrigin(I, A[0]) : anxGetTokenCenter(I)), n = D[D.length - 1] ?? (Array.isArray(A) && A.length ? anxWaypointToMovementOrigin(I, A[A.length - 1]) : o), m = anxGetBlockingWallSegments(), O = anxGetTokenGridlessClearancePx(I), W = anxGetTokenCornerExtraPx(I), p = Math.max(0, Math.min(W, O * 0.35)), T = canvas?.dimensions?.sceneRect, x = T ? anxValidatePathCollisionFromStart([o, n], o, m, O, T, p) : { blockedPointIndex: -1, blockedSegmentIndex: -1, startConnectorBlocked: !1 }, _ = [];
+  let P = 0;
+  for (const j of m) {
+    const V = Math.sqrt(anxSegmentToSegmentDistanceSquared(o, n, j.a, j.b)), Z = anxSegmentsIntersect(o, n, j.a, j.b), $ = V <= Math.max(0, O + p - anxGetGridlessExactFitTolerancePx());
+    Z && (P += 1);
+    if (!$ && !Z && _.length >= 12)
+      continue;
+    _.push({
+      id: j.id ?? null,
+      a: anxSanitizePoint(j.a),
+      b: anxSanitizePoint(j.b),
+      distanceFromDirectRoutePx: anxRoundDebugNumber(V),
+      clearanceMarginPx: anxRoundDebugNumber(V - O - p),
+      physicalCenterlineCrossing: Z,
+      clearanceConflict: $,
+      door: j.door ?? null,
+      doorState: j.doorState ?? null,
+      movementSense: j.movementSense ?? null
+    });
+  }
+  _.sort((j, V) => Number(j.distanceFromDirectRoutePx) - Number(V.distanceFromDirectRoutePx));
+  const j = E ? anxGridlessWorkerState.inflightByToken.get(E) : null, V = E ? anxGridlessWorkerState.latestPayloadByToken.get(E) : null, Z = E ? anxGridlessWorkerState.resultByToken.get(E) : null, $ = E ? anxGridlessWorkerState.lastDiagByToken.get(E) : null, ii = E ? anxGridlessRejectionByToken.get(E) : null, yt = E ? anxGridlessFailCache.get(E) : null, xt = E ? anxGridlessLastPathCache.get(E) : null;
+  const J = B === "worker_pending" ? "calculation_pending" : ii?.reason === "foundry_collision_rejected" ? "foundry_rejected_candidate" : ii?.reason === "worker_path_collision" ? "worker_candidate_collided" : ii?.reason === "stale_worker_result" ? "stale_worker_result" : x.blockedPointIndex === 0 ? "token_origin_inside_wall_clearance" : x.blockedPointIndex === 1 ? "destination_inside_wall_clearance" : P > 0 ? "direct_route_crosses_wall" : x.blockedSegmentIndex >= 0 ? "direct_route_violates_token_clearance" : B === "no_route" ? "no_connected_graph_route" : B === "time_cap_hit" || B === "iter_cap_hit" ? "search_budget_exhausted" : "no_verified_route";
+  return {
+    movementPrevented: !0,
+    returnedPath: "origin_only",
+    stage: C,
+    classification: J,
+    solverReason: B,
+    explanation: anxExplainGridlessFailureReason(B),
+    request: {
+      waypointOrigin: anxSanitizePoint(Array.isArray(A) ? A[0] : null),
+      waypointDestination: anxSanitizePoint(Array.isArray(A) ? A[A.length - 1] : null),
+      movementOrigin: anxSanitizePoint(o),
+      movementDestination: anxSanitizePoint(n),
+      straightDistancePx: anxRoundDebugNumber(Math.sqrt(anxDistanceSquared(o, n)))
+    },
+    token: {
+      radiusPx: anxRoundDebugNumber(anxGetTokenRadiusPx(I)),
+      requiredClearancePx: anxRoundDebugNumber(O),
+      cornerGuardPx: anxRoundDebugNumber(p),
+      squeezeEnabled: anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze)
+    },
+    directRoute: {
+      blockedPointIndex: x.blockedPointIndex,
+      blockedPoint: x.blockedPointIndex >= 0 ? anxSanitizePoint([o, n][x.blockedPointIndex]) : null,
+      blockedSegmentIndex: x.blockedSegmentIndex,
+      blockedSegment: x.blockedSegmentIndex === 0 ? { from: anxSanitizePoint(o), to: anxSanitizePoint(n) } : null,
+      startConnectorBlocked: x.startConnectorBlocked,
+      physicalWallCrossings: P,
+      relevantWalls: _.slice(0, 12)
+    },
+    worker: {
+      available: !!anxGridlessWorkerState.worker,
+      inFlight: !!j,
+      inFlightRequestId: j?.requestId ?? null,
+      inFlightAgeMs: j ? Math.round(i - j.sentMs) : null,
+      inFlightStart: j?.start ?? null,
+      inFlightTarget: j?.target ?? null,
+      inFlightSceneId: j?.sceneId ?? null,
+      inFlightWallRevision: Number.isFinite(j?.wallRevision) ? j.wallRevision : null,
+      inFlightFingerprint: j?.fingerprint ?? null,
+      newerRequestQueued: !!V,
+      queuedTarget: Array.isArray(V?.waypoints) && V.waypoints.length ? anxSanitizePoint(V.waypoints[V.waypoints.length - 1]) : null,
+      resultAvailable: !!Z,
+      resultAgeMs: Z?.t ? Math.round(i - Z.t) : null,
+      resultReason: Z?.reason ?? null,
+      resultHasPath: Array.isArray(Z?.path),
+      lastWorkerReason: $?.final?.reason ?? null
+    },
+    caches: {
+      recentFailureReason: yt?.reason ?? null,
+      recentFailureAgeMs: yt?.t ? Math.round(i - yt.t) : null,
+      lastValidPathAgeMs: xt?.t ? Math.round(i - xt.t) : null,
+      lastValidMatchesRequest: Array.isArray(xt?.path) ? anxFoundryPathMatchesRequestedEndpoints(xt.path, A) : !1
+    },
+    lastCandidateRejection: ii ? { ...anxCloneTrace(ii), ageMs: Math.round(i - ii.t) } : null
+  };
+}
+function anxFinalizeBlockedGridlessPath(I, A, g, B, C, i) {
+  const E = anxBlockedGridlessPath(A), D = anxGridlessTraceEnabled() ? anxBuildGridlessRejectionDiagnosis(I, A, i, B, C) : null;
+  if (g) {
+    g.final = {
+      outcome: "gridless_blocked_no_verified_path",
+      reason: B,
+      pathLength: E.length,
+      elapsedMs: anxNowMs() - g.startedMs,
+      expectedFinalCenter: null,
+      requestedFinalWaypoint: Array.isArray(A) && A.length > 0 ? anxSanitizePoint(A[A.length - 1]) : null,
+      movementObservation: {
+        status: "movement_prevented_no_verified_route",
+        observedCenter: null,
+        distanceToExpectedPx: null,
+        updates: 0,
+        elapsedMs: 0
+      },
+      rejection: D
+    }, anxPushGridlessTrace(anxCloneTrace(g));
+  }
+  return D && anxDebugLog("Prevented illegal or unresolved gridless movement.", D), E;
 }
 function anxGetGridlessSceneData(I) {
   var B;
@@ -3403,8 +3594,9 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
               reportDragOutcome("reused_last_valid_path", !0, f2.reason ?? "recent_failed_target", { source: "failCache" });
               return J2.path;
             }
-            reportDragOutcome("gridless_blocked_no_verified_path", !1, f2.reason ?? "recent_failed_target", { source: "failCache" });
-            return anxBlockedGridlessPath(A);
+            const blockedReason = f2.reason ?? "recent_failed_target", blockedPath = anxFinalizeBlockedGridlessPath(I, A, B, blockedReason, "recent_failure_cache", centerWaypoints);
+            reportDragOutcome("gridless_blocked_no_verified_path", !1, blockedReason, { source: "failCache" });
+            return blockedPath;
           }
         }
       }
@@ -3462,8 +3654,10 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           bootstrapGridlessPath = !anxGridlessWorkerState.bootstrapByToken.has(i);
           if (bootstrapGridlessPath)
             anxGridlessWorkerState.bootstrapByToken.add(i);
-          else
-            return reportDragOutcome("gridless_blocked_no_verified_path", !1, "worker_pending", { source: "worker_pending_fail_closed" }), anxBlockedGridlessPath(A);
+          else {
+            const blockedPath = anxFinalizeBlockedGridlessPath(I, A, B, "worker_pending", "worker_wait", centerWaypoints);
+            return reportDragOutcome("gridless_blocked_no_verified_path", !1, "worker_pending", { source: "worker_pending_fail_closed" }), blockedPath;
+          }
         }
       }
       const C = anxFindGridlessPath(I, centerDestinations, {
@@ -3533,22 +3727,8 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           }, anxPushGridlessTrace(anxCloneTrace(B))), reportDragOutcome("reused_last_valid_path", !0, C.reason, { source: "lastValidPathCache" }), D.path;
         }
       }
-      const o = anxBlockedGridlessPath(A);
-      return anxDebugLog("Gridless route failed; blocking movement until a verified route is available.", { reason: C.reason }), B && (B.final = {
-        outcome: "gridless_blocked_no_verified_path",
-        reason: C.reason,
-        pathLength: o.length,
-        elapsedMs: E - B.startedMs,
-        expectedFinalCenter: null,
-        requestedFinalWaypoint: Array.isArray(A) && A.length > 0 ? { x: Number(A[A.length - 1]?.x) || 0, y: Number(A[A.length - 1]?.y) || 0 } : null,
-        movementObservation: {
-          status: "not_tracked_no_expected_center",
-          observedCenter: null,
-          distanceToExpectedPx: null,
-          updates: 0,
-          elapsedMs: 0
-        }
-      }, anxPushGridlessTrace(anxCloneTrace(B))), reportDragOutcome("gridless_blocked_no_verified_path", !1, C.reason, {
+      const o = anxFinalizeBlockedGridlessPath(I, A, B, C.reason, "main_solver_exhausted", centerWaypoints);
+      return reportDragOutcome("gridless_blocked_no_verified_path", !1, C.reason, {
         triage: B ? anxBuildTraceTriage(B) : null
       }), o;
     }
@@ -3605,7 +3785,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
       backendUnexpectedWaypointCount: W
     });
   } catch (B) {
-    const C = anxIsStrictGridlessScene(), i = C ? anxBlockedGridlessPath(A) : anxNativeFallback(I, A, g).result;
+    const C = anxIsStrictGridlessScene(), trace = C && anxGridlessTraceEnabled() ? anxBuildGridlessTraceContext(I, A, g) : null, centerWaypoints = C ? (Array.isArray(A) ? A : []).map((D) => anxWaypointToMovementOrigin(I, D)) : [], i = C ? (anxRecordGridlessRejection(I, { stage: "exception", reason: "exception", message: String(B?.message ?? B), stack: typeof B?.stack == "string" ? B.stack.slice(0, 4e3) : null }), anxFinalizeBlockedGridlessPath(I, A, trace, "exception", "exception", centerWaypoints)) : anxNativeFallback(I, A, g).result;
     anxDebugLog(C ? "Gridless pathfinding failed; blocking movement until a verified route is available." : "Pathfinding failed; using native fallback.", B);
     return finalizePathCaptureAndReturn(i, {
       branch: C ? "gridless_fail_closed" : "native_fallback",

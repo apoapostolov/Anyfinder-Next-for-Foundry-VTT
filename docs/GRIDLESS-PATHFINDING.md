@@ -131,6 +131,21 @@ Every mutation increments `wallRevision` and clears main-thread result maps. The
 
 The solver reports a reason and may reuse a very recent legal path. If no verified route is available—including while a Worker is pending, after a cached failure, or after an exception—the gridless adapter returns only Foundry's exact first requested waypoint. This fail-closed path leaves the token at its origin and marks the destination unreachable. It never substitutes Foundry's partial straight constraint, which could otherwise draw through walls and move the token up to the first collision. Native fallback remains available for square and hex routing compatibility, but not for strict gridless pathfinding.
 
+### Rejection diagnostics
+
+With **Record Diagnostics** enabled, every fail-closed return creates a completed trace—even when it comes from an early cached failure or a pending Worker rather than the main solver. `final.rejection` records:
+
+- the rejection stage and a plain-language classification;
+- the solver or Worker reason and whether work is still in flight;
+- requested token-position and movement-origin endpoints;
+- token radius, effective clearance, corner guard, and squeeze state;
+- direct-route point/segment collision results;
+- up to 12 relevant walls with Foundry wall ID, endpoints, door state, centerline crossing, and clearance margin;
+- Worker request/result state, recent-failure cache state, and whether the last valid route matched the request;
+- the most recent rejected Worker or Foundry-constrained candidate.
+
+For the most recent prevented move, run `anxDebugGetLastBlockedMovement()` in the developer console. `anxDebugExplainLastFailure()` adds the per-attempt solver summary, while `anxDebugWriteSessionLog()` exports all retained traces.
+
 ## Optimization priorities
 
 1. Share one generated search core between Worker and main thread to eliminate semantic drift.
