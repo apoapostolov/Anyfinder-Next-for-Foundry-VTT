@@ -1906,7 +1906,7 @@ function anxDebugWriteSessionLog() {
       const B = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       anxDebugSessionFilename = `anyfinder-next-debug-${B}.json`;
     }
-    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.3", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
+    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.4", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
     const fp = typeof foundry < "u" ? foundry?.applications?.apps?.FilePicker?.implementation : null;
     fp && typeof fp.upload == "function" ? fp.upload("data", `modules/${ANX_MODULE_ID}/debug`, D, {}) : console.log("[Anyfinder Next] FilePicker unavailable — cannot write debug log to server.");
   } catch {
@@ -2394,6 +2394,7 @@ function anxBuildWorkerOverlayPath(I, A, g) {
   const C = { x: Number(I?.x) || 0, y: Number(I?.y) || 0 }, i = { x: Number(A?.x) || 0, y: Number(A?.y) || 0 }, E = 1;
   for (; B.length > 0 && anxDistanceSquared(B[0], C) <= E; )
     B.shift();
+  B.unshift(C);
   if (!B.length || anxDistanceSquared(B[B.length - 1], i) > E)
     B.push(i);
   return B.length ? B : null;
@@ -2569,19 +2570,36 @@ function anxGridlessPathToWaypoints(I, A, g = []) {
     return E ? { ...E.waypoint, x: i.x, y: i.y } : i;
   }) : [];
 }
+function anxEnsureGridlessCenterPathStartsAt(I, A) {
+  const g = { x: Number(I?.x) || 0, y: Number(I?.y) || 0 }, B = anxClonePointPath(A), C = 0.01 * 0.01;
+  for (; B.length > 0 && anxDistanceSquared(B[0], g) <= C; )
+    B.shift();
+  return B.unshift(g), B;
+}
+function anxFoundryPathStartsAtRequestedOrigin(I, A) {
+  if (!Array.isArray(I) || !I.length || !Array.isArray(A) || !A.length)
+    return !1;
+  return anxPathPointMatchesAny(I[0], [A[0]], 0.01);
+}
 function anxPrepareGridlessPathForFoundry(I, A, g, B) {
-  const C = anxGridlessPathToWaypoints(I, A, g);
+  const C2 = Array.isArray(g) ? g : [];
+  if (!C2.length)
+    return [];
+  const E2 = anxWaypointToMovementOrigin(I, C2[0]), C = anxGridlessPathToWaypoints(I, anxEnsureGridlessCenterPathStartsAt(E2, A), C2);
   if (!C.length)
     return null;
+  C[0] = { ...C2[0] };
   try {
     const [i, E] = I.constrainMovementPath(C, { preview: !1, ignoreWalls: !1 });
-    const D = Array.isArray(g) && g.length > 0 ? g[g.length - 1] : null, o = Array.isArray(i) && i.length > 0 ? i[i.length - 1] : null;
-    if (E || !Array.isArray(i) || i.length !== C.length || D && (!o || !anxPathPointMatchesAny(o, [D], 1))) {
+    const D = C2[C2.length - 1], o = Array.isArray(i) && i.length > 0 ? i[i.length - 1] : null, n = Array.isArray(i) && i.length > 0 ? i[0] : null;
+    if (E || !Array.isArray(i) || i.length !== C.length || !n || !anxPathPointMatchesAny(n, [C2[0]], 0.01) || D && (!o || !anxPathPointMatchesAny(o, [D], 1))) {
       anxDebugLog("Rejected gridless path that Foundry constrained.", {
         source: B,
         inputLength: C.length,
         constrainedLength: Array.isArray(i) ? i.length : null,
         wasConstrained: E,
+        expectedOrigin: { x: C2[0].x, y: C2[0].y },
+        constrainedOrigin: n ? { x: n.x, y: n.y } : null,
         expectedFinal: D ? { x: D.x, y: D.y } : null,
         constrainedFinal: o ? { x: o.x, y: o.y } : null
       });
@@ -3160,10 +3178,10 @@ function anxFindGridlessSegmentPath(I, A, g, B = {}, C2 = null) {
   return anxSetCachedGridlessSegmentPath(E, segmentCacheKey, jt), { path: jt, reason: null };
 }
 function anxFindGridlessPath(I, A, g, B2 = null) {
-  const B = anxGetConstraintHistory(g, I), C2 = Array.isArray(A) ? A : [];
+  const C2 = Array.isArray(A) ? A : [];
   if (!C2.length)
     return { path: [], reason: null };
-  const i = B.length > 0 ? B[B.length - 1] : anxGetTokenCenter(I), E = anxGetNumberSetting("gridlessNodeStepPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessNodeStepPx, 16, 160), D2 = anxGetGridlessSceneData(E), C = anxExpandGridlessWaypointsForLongRoutes(i, C2, E, D2?.walls);
+  const i = Number.isFinite(g?.__anxStart?.x) && Number.isFinite(g?.__anxStart?.y) ? { x: Number(g.__anxStart.x), y: Number(g.__anxStart.y) } : anxGetTokenCenter(I), E = anxGetNumberSetting("gridlessNodeStepPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessNodeStepPx, 16, 160), D2 = anxGetGridlessSceneData(E), C = anxExpandGridlessWaypointsForLongRoutes(i, C2, E, D2?.walls);
   B2 && C.length !== C2.length && (B2.preprocess = {
     expandedWaypoints: C.length,
     originalWaypoints: C2.length
@@ -3328,7 +3346,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
   }), B2);
   try {
     if (anxIsStrictGridlessScene()) {
-      const B = anxGridlessTraceEnabled() ? anxBuildGridlessTraceContext(I, A, g) : null, C2 = anxGetConstraintHistory(g, I), centerWaypoints = (Array.isArray(A) ? A : []).map((X2) => anxWaypointToMovementOrigin(I, X2)), iStart = C2.length > 0 ? anxWaypointToMovementOrigin(I, C2[C2.length - 1]) : anxGetTokenCenter(I), E2 = centerWaypoints.length > 0 ? centerWaypoints[centerWaypoints.length - 1] : null, D2 = Number(E2?.x), o2 = Number(E2?.y), n2 = anxGetTokenCacheKey(I), m2 = anxNowMs(), O2 = anxGetNumberSetting("gridlessNodeStepPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessNodeStepPx, 16, 160), W2 = Math.max(6, Math.min(18, O2 * 0.25)), p2 = Math.max(3, Math.min(10, O2 * 0.12));
+      const B = anxGridlessTraceEnabled() ? anxBuildGridlessTraceContext(I, A, g) : null, centerWaypoints = (Array.isArray(A) ? A : []).map((X2) => anxWaypointToMovementOrigin(I, X2)), iStart = centerWaypoints.length > 0 ? centerWaypoints[0] : anxGetTokenCenter(I), centerDestinations = centerWaypoints.slice(1), E2 = centerWaypoints.length > 0 ? centerWaypoints[centerWaypoints.length - 1] : null, D2 = Number(E2?.x), o2 = Number(E2?.y), n2 = anxGetTokenCacheKey(I), m2 = anxNowMs(), O2 = anxGetNumberSetting("gridlessNodeStepPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessNodeStepPx, 16, 160), W2 = Math.max(6, Math.min(18, O2 * 0.25)), p2 = Math.max(3, Math.min(10, O2 * 0.12));
       const dragSession = anxBeginOrGetDragSession(n2, m2, I?.document?.name ?? I?.name ?? n2), reportDragOutcome = (X2, H2, K2 = null, q2 = null) => anxUpdateDragRegression(dragSession, {
         nowMs: m2,
         outcome: X2,
@@ -3338,7 +3356,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
         meta: q2
       });
       let tRoute = 0, tPrev = { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 };
-      for (const X2 of centerWaypoints) {
+      for (const X2 of centerDestinations) {
         const H2 = { x: Number(X2?.x) || 0, y: Number(X2?.y) || 0 };
         tRoute += Math.hypot(H2.x - tPrev.x, H2.y - tPrev.y), tPrev = H2;
       }
@@ -3365,7 +3383,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           if (X2 <= KSoftTarget * KSoftTarget && H2 <= qSoftStart * qSoftStart && Array.isArray(v2.path)) {
             v2.frame = (v2.frame || 0) + 1;
             const K2 = v2.detour ? ANX_GRIDLESS_RECALC_FRAME_INTERVAL_DETOUR : ANX_GRIDLESS_RECALC_FRAME_INTERVAL;
-            if (!hasWorkerPathBackend && m2 - v2.t <= ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS && v2.frame % K2 !== 0) {
+            if (!hasWorkerPathBackend && m2 - v2.t <= ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS && v2.frame % K2 !== 0 && anxFoundryPathStartsAtRequestedOrigin(v2.path, A)) {
               reportDragOutcome("drag_reuse_cached_path", !0, null, { source: "dragReuseCache" });
               return v2.path;
             }
@@ -3376,7 +3394,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           const X2 = anxDistanceSquared({ x: D2, y: o2 }, f2.target), H2 = anxDistanceSquared(iStart, f2.start), K2 = Math.max(72, W2 * 6), q2 = Math.max(24, p2 * 6);
           if (m2 - f2.t <= ANX_GRIDLESS_FAIL_REUSE_MAX_AGE_MS && X2 <= K2 * K2 && H2 <= q2 * q2) {
             const J2 = anxGridlessLastPathCache.get(n2);
-            if (!hasWorkerPathBackend && J2 && Array.isArray(J2.path) && m2 - J2.t <= 400) {
+            if (!hasWorkerPathBackend && J2 && Array.isArray(J2.path) && m2 - J2.t <= 400 && anxFoundryPathStartsAtRequestedOrigin(J2.path, A)) {
               reportDragOutcome("reused_last_valid_path", !0, f2.reason ?? "recent_failed_target", { source: "failCache" });
               return J2.path;
             }
@@ -3388,7 +3406,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
       const i = n2, E = m2;
       let bootstrapGridlessPath = !1;
       if (i && Number.isFinite(D2) && Number.isFinite(o2)) {
-        const D = anxBuildWorkerSolvePayload(I, centerWaypoints, iStart, O2, {
+        const D = anxBuildWorkerSolvePayload(I, centerDestinations, iStart, O2, {
           ...g,
           __anxInteractiveFast: r2
         });
@@ -3443,8 +3461,9 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
             return reportDragOutcome("native_fallback_after_gridless_fail", !1, "worker_pending", { source: "worker_pending_native_fallback" }), anxNativeFallback(I, A, g).result;
         }
       }
-      const C = anxFindGridlessPath(I, centerWaypoints, {
+      const C = anxFindGridlessPath(I, centerDestinations, {
         ...g,
+        __anxStart: iStart,
         __anxInteractiveFast: r2 || bootstrapGridlessPath
       }, B);
       const foundryMainPath = Array.isArray(C.path) ? anxPrepareGridlessPathForFoundry(I, C.path, A, "main") : null;
@@ -3490,7 +3509,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
       });
       if (i) {
         const D = anxGridlessLastPathCache.get(i);
-        if (D && Array.isArray(D.path) && E - D.t <= 400) {
+        if (D && Array.isArray(D.path) && E - D.t <= 400 && anxFoundryPathStartsAtRequestedOrigin(D.path, A)) {
           const o = D.path[D.path.length - 1], n = Array.isArray(A) && A.length > 0 ? A[A.length - 1] : null;
           return anxDebugLog("Gridless route failed; reusing last valid path.", { ageMs: Math.round(E - D.t), reason: C.reason }), B && (B.final = {
             outcome: "reused_last_valid_path",

@@ -71,11 +71,13 @@ test("gridless routing converts Foundry token positions to movement origins and 
   const context = vm.createContext({
     anxGetTokenCenter: () => ({ x: 150, y: 240 }),
     anxDebugLog: () => {},
+    anxClonePointPath: (path) => path.map((point) => ({ x: point.x, y: point.y })),
+    anxDistanceSquared: (a, b) => ((a.x - b.x) ** 2) + ((a.y - b.y) ** 2),
     anxPathPointMatchesAny: (point, candidates, tolerance) => candidates.some(
       (candidate) => Math.hypot(point.x - candidate.x, point.y - candidate.y) <= tolerance,
     ),
   });
-  vm.runInContext(`${bundle.slice(start, end)}\nthis.api = { anxWaypointToMovementOrigin, anxGridlessPathToWaypoints, anxPrepareGridlessPathForFoundry };`, context);
+  vm.runInContext(`${bundle.slice(start, end)}\nthis.api = { anxWaypointToMovementOrigin, anxGridlessPathToWaypoints, anxEnsureGridlessCenterPathStartsAt, anxPrepareGridlessPathForFoundry };`, context);
   const token = {
     x: 100,
     y: 200,
@@ -90,7 +92,7 @@ test("gridless routing converts Foundry token positions to movement origins and 
   assert.deepEqual({ x: origin.x, y: origin.y }, { x: 150, y: 240 });
   const path = context.api.anxPrepareGridlessPathForFoundry(
     token,
-    [{ x: 150, y: 240 }, { x: 250, y: 340 }],
+    [{ x: 250, y: 340 }],
     [{ x: 100, y: 200 }, { x: 200, y: 300, explicit: true }],
     "test",
   );
@@ -103,10 +105,19 @@ test("gridless routing converts Foundry token positions to movement origins and 
   token.constrainMovementPath = (candidate) => [candidate.slice(0, 1), true];
   assert.equal(context.api.anxPrepareGridlessPathForFoundry(
     token,
-    [{ x: 150, y: 240 }, { x: 250, y: 340 }],
+    [{ x: 250, y: 340 }],
     [{ x: 100, y: 200 }, { x: 200, y: 300 }],
     "test-rejection",
   ), null);
+});
+
+test("gridless routes obey Foundry's required first-waypoint contract", () => {
+  assert.match(bundle, /iStart = centerWaypoints\.length > 0 \? centerWaypoints\[0\]/);
+  assert.match(bundle, /centerDestinations = centerWaypoints\.slice\(1\)/);
+  assert.match(bundle, /B\.unshift\(C\)/);
+  assert.match(bundle, /C\[0\] = \{ \.\.\.C2\[0\] \}/);
+  assert.match(bundle, /anxFoundryPathStartsAtRequestedOrigin\(v2\.path, A\)/);
+  assert.match(bundle, /__anxStart: iStart/);
 });
 
 test("gridless results are rejected when Foundry constrains the route", () => {

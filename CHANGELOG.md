@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Restored Foundry v14's required first-waypoint contract for gridless paths: Worker, synchronous, and cached routes now remain anchored to the exact token drag origin.
+- Stopped using movement history as the gridless solver origin and stopped stripping the origin from completed Worker routes.
 - Corrected gridless coordinate handling so Foundry token positions are converted to movement origins before routing and generated nodes are converted back before movement.
 - Added an authoritative final safety gate through Foundry's own movement constraint; a route Foundry would shorten or alter is now rejected instead of leaving the token at a collision point.
 - Kept hard wall corners protected by endpoint exclusion during node search and final segment validation, with a regression fixture for joined right-angle walls.

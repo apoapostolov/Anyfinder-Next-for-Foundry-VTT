@@ -2,7 +2,7 @@
 
 ## Contract
 
-Gridless Anyfinder computes a polyline for a token center through a 2D scene. It is wall-aware and token-size-aware, but it is not currently Region-, fog-, elevation-, or terrain-cost-aware. The result format excludes the current start point and preserves the requested destination as the final waypoint.
+Gridless Anyfinder computes a polyline for a token center through a 2D scene. It is wall-aware and token-size-aware, but it is not currently Region-, fog-, elevation-, or terrain-cost-aware. Internal solver results omit the start point. The Foundry adapter always prepends the exact first requested waypoint because Foundry v14 requires every non-empty returned path to begin there; it also preserves the requested destination as the final waypoint.
 
 The normal execution path is asynchronous in `dist/anyfinder-gridless-worker.js`. `dist/anyfinder-next.js` contains a synchronous equivalent for the initial bounded bootstrap and environments where Workers are unavailable.
 
@@ -25,7 +25,7 @@ effective clearance = max(
 
 Squeeze is enabled by default. A clearance of 60% of the radius permits a corridor approximately 60% of the token diameter. This necessarily allows token artwork to overlap the wall visually, but every point and edge of the center path is collision-checked: the center cannot touch or cross a physical wall, so the vision origin cannot cross through it. The former fixed-pixel squeeze-leeway and minimum-clearance settings remain registered for compatibility but are hidden and no longer control clearance.
 
-Foundry movement waypoints store token positions, while collision rays operate on the token's movement origin. Anyfinder converts every requested waypoint and movement-history position to a movement origin before solving, then converts generated route nodes back to token positions before returning the path. The completed path is passed through Foundry's own movement constraint as an authoritative safety check; any path Foundry shortens or adjusts is discarded.
+Foundry movement waypoints store token positions, while collision rays operate on the token's movement origin. Anyfinder converts every requested waypoint to a movement origin before solving, then converts generated route nodes back to token positions before returning the path. The first requested waypoint—not movement history—is the solver origin. The completed path is passed through Foundry's own movement constraint as an authoritative safety check; any path Foundry shortens, adjusts, or de-anchors from that exact origin is discarded.
 
 The exact-fit tolerance is subtracted during collision checks to prevent floating-point/tangent noise from closing nominally exact passages. A bounded endpoint guard accounts for extra corner reach. This is conservative for some shapes and permissive for others because rotated or non-circular footprints are reduced to one scalar radius.
 
@@ -93,6 +93,8 @@ Wider reuse is protected by four gates:
 2. target-point proximity;
 3. exact scene ID, wall revision, token size, and solver-setting fingerprint;
 4. collision validation against current walls immediately before return.
+
+In addition, cached paths are returned only when their first point still matches Foundry's first requested waypoint. This prevents a route calculated from a movement-history point or a stripped Worker origin from being reused during later drag frames.
 
 For the first request after invalidation, the main thread performs one bounded interactive solve per token while the Worker builds its graph. This avoids presenting a straight native route into a wall. Later frames return to Worker-first behavior; the bootstrap marker is cleared whenever geometry/settings or the canvas lifecycle invalidates routing state.
 
