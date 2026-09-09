@@ -141,3 +141,10 @@
   tail and resets the repair budget.
 - Added a regression test for cumulative-distance rebasing. Syntax checks and
   all 30 tests pass.
+- Final review found that consuming a fast Worker result could leave its
+  delayed full-refinement timer armed. Successful direct, Worker, main, and
+  rebased routes now cancel matching timers and queued payloads, avoiding an
+  unnecessary second solve.
+- Re-ran all 30 tests, live-synced the corrected bundle, and confirmed
+  checkout/live/HTTP parity at MD5
+  `bcbfca440d63ade4e1388915d0eb0d6d` with HTTP 200.

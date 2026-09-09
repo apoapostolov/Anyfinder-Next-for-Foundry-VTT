@@ -74,12 +74,14 @@ one browser reload before its in-world trace can be compared with that baseline.
 - [x] Queue a fresh node route after the budget without hiding the valid path.
 - [x] Replace the freehand tail when the verified Worker result arrives.
 - [x] Add regression coverage and update pathfinding documentation/changelog.
-- [ ] Run the full suite, live-sync, verify port 30005, commit, and push `main`.
+- [ ] Commit the verified implementation and push `main`.
 
 ## Review
 
 Implementation is complete. At the default 40 px node spacing, 100 px of
 accumulated repaired movement requests a fresh node route; 16 tiny repairs are
 the secondary cap. The valid repaired path remains displayed until a verified
-Worker route replaces it. The suite passes 30/30 tests; live sync, verification,
-commit, and push remain.
+Worker route replaces it. The suite passes 30/30 tests, and the final live
+bundle is served on port 30005 with matching hashes. Commit and push remain;
+the refreshed in-world source-transition trace still depends on a browser
+reload.
