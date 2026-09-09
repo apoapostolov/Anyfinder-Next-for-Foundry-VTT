@@ -148,3 +148,8 @@
 - Re-ran all 30 tests, live-synced the corrected bundle, and confirmed
   checkout/live/HTTP parity at MD5
   `bcbfca440d63ade4e1388915d0eb0d6d` with HTTP 200.
+- Implementation commit: `6ea5a33318ba351d417dec2f60632a372264fdb2`
+  (`fix: keep gridless routes responsive without drag stalls`), target
+  `main`; already present on `origin/main` when the final commit gate ran.
+- Verification-log commit: `aed2e1af81b6daceb4a58063ba395516c7eee0f7`
+  (`docs-record-gridless-routing-verification`), target `main`.
