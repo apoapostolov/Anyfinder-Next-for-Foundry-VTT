@@ -26,6 +26,11 @@
 - The README/CHANGELOG/module metadata changes remain to be committed and
   pushed.
 
+## 2026-09-09 — Documentation commit
+
+- Commit: `6e7c459` (`feat-add-anyfinder-next-project-docs`), target `main`.
+- Pushed successfully to `origin/main`.
+
 ## 2026-09-09 — Gridless latency and dead-zone redesign
 
 - The supplied trace range `#1040–#1313` contained 274 unique requests: 164

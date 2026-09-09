@@ -5,8 +5,8 @@
 - [x] Update README, CHANGELOG, and module metadata for the new repository.
 - [x] Run validation and live HTTP checks.
 - [x] Create the GitHub repository and configure `origin`.
-- [ ] Commit the repository-template changes.
-- [ ] Push `main` and verify the remote branch.
+- [x] Commit the repository-template changes.
+- [x] Push `main` and verify the remote branch.
 
 ## Review
 
@@ -22,6 +22,11 @@ settings, installation, compatibility, development, and credits.
 
 - Repository: `https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT`
 - Visibility: public
+
+## Commit review
+
+- Commit: `6e7c459` (`feat-add-anyfinder-next-project-docs`), target `main`.
+- Pushed successfully to `origin/main`.
 
 # Remove gridless drag latency and make diagnostics filesystem-first
 
