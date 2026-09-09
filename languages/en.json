@@ -26,6 +26,11 @@
                 "name": "Respect Explored Fog",
                 "hint": "When on, tokens cannot route through areas the current player has not explored."
             },
+            "enableGridlessPathfinding": {
+                "name": "Enable Pathfinding on Gridless Maps",
+                "hint": "Uses Anyfinder Next pathfinding on maps without a grid. This is enabled by default, but gridless routing can have dead zones and may take up to half a second to calculate.",
+                "confirmation": "Gridless pathfinding can have dead zones and may take up to half a second to calculate a route. Drag quickly if you like, but wait for the pathfinding line to appear before releasing the token. If no route appears, move the token slightly so it can reach a nearby navigation node. Do you acknowledge these limitations?"
+            },
             "gridlessNodeStepPx": {
                 "name": "Gridless Route Detail",
                 "hint": "Lower values follow walls and narrow passages more closely but take longer. Higher values are faster but may skip narrow passages."
@@ -36,7 +41,11 @@
             },
             "gridlessAllowSqueeze": {
                 "name": "Allow Tight-Passage Movement",
-                "hint": "Allows a token through passages as narrow as about 60% of its width. Its center remains clear of walls so vision cannot cross through them."
+                "hint": "Allows a configurable amount of the token to overlap wall clearance in narrow passages. The token center remains clear of walls so vision cannot cross through them."
+            },
+            "gridlessWallOverlapPercent": {
+                "name": "Tight-Passage Wall Overlap (% of Token Width)",
+                "hint": "Maximum token-width overlap allowed in a narrow passage. Lower values keep more clearance; higher values help tokens fit through tighter spaces."
             },
             "gridlessSqueezeLeewayPx": {
                 "name": "Tight-Passage Allowance (Pixels)",

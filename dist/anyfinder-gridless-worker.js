@@ -1,6 +1,6 @@
 const NODE_BUDGET = 120000;
 const MAX_STEP = 160;
-const SQUEEZE_RADIUS_RATIO = 0.6;
+const DEFAULT_WALL_OVERLAP_PERCENT = 20;
 const SCENE_STEP_CACHE_MAX = 12;
 const sceneStepCache = new Map();
 
@@ -519,10 +519,9 @@ function solveSegment(payload, data, from0, to0, opt) {
   const exactTol = Number(settings.gridlessExactFitTolerancePx) || 0;
   const tokenRadius = Number(payload.token.radiusPx) || 0;
   const cornerExtra = Number(payload.token.cornerExtraPx) || 0;
-  const clearance = Math.max(
-    1,
-    allowSqueeze ? tokenRadius * SQUEEZE_RADIUS_RATIO : tokenRadius,
-  );
+  const overlapPercent = Math.max(0, Math.min(45, Number(settings.gridlessWallOverlapPercent ?? DEFAULT_WALL_OVERLAP_PERCENT) || DEFAULT_WALL_OVERLAP_PERCENT));
+  const clearanceRatio = Math.max(0.1, 1 - overlapPercent / 50);
+  const clearance = Math.max(1, allowSqueeze ? tokenRadius * clearanceRatio : tokenRadius);
   const endpointGuard = Math.max(0, Math.min(cornerExtra, clearance * 0.35));
   const graphGuard = 0;
   const graph = getWalkGraph(data, clearance, graphGuard, exactTol);

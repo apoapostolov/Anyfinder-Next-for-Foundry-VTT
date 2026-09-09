@@ -52,10 +52,17 @@ test("long worker routes remain pending and Foundry's direct dashed segment is h
   assert.match(bundle, /A\?\.unreachable/);
 });
 
-test("squeeze defaults on and uses a token-relative 60 percent clearance", () => {
-  assert.match(bundle, /const ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO = 0\.6/);
+test("squeeze defaults on and uses configurable token-relative wall overlap", () => {
+  assert.match(bundle, /const ANX_GRIDLESS_DEFAULT_WALL_OVERLAP_PERCENT = 20/);
   assert.match(bundle, /gridlessAllowSqueeze: !0/);
-  assert.match(bundle, /B \* ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO/);
+  assert.match(bundle, /gridlessWallOverlapPercent: 10/);
+  assert.match(bundle, /overlapPercent \/ 50/);
+});
+
+test("gridless pathfinding is enabled by default and requires GM acknowledgement", () => {
+  assert.match(bundle, /enableGridlessPathfinding: !0/);
+  assert.match(bundle, /anxOnGridlessPathfindingSettingChanged/);
+  assert.match(bundle, /settings\.enableGridlessPathfinding\.confirmation/);
 });
 
 test("returned gridless paths validate the implicit start connector", () => {
@@ -189,6 +196,10 @@ test("settings are localized, grouped with semantic headings, and hide internal 
   assert.match(bundle, /renderSettingsConfig/);
   assert.match(bundle, /createElement\("h3"\)/);
   assert.match(bundle, /anx-settings-section/);
+  assert.match(bundle, /id: "general"[\s\S]*settings: \["forcePathfindingAllPlayers", "fogExploration"\]/);
+  assert.match(bundle, /id: "gridless"[\s\S]*settings: \["enableGridlessPathfinding", "gridlessNodeStepPx", "gridlessAllowSqueeze", "gridlessWallOverlapPercent"\]/);
+  assert.match(bundle, /id: "advanced"[\s\S]*settings: \["debugMode", "debugLogMode"\]/);
+  assert.match(bundle, /data-anx-settings-section=/);
   assert.equal(english["anyfinder-next"].settings.sections.gridless, "Gridless Maps");
   assert.equal(english["anyfinder-next"].settings.gridlessNodeStepPx.name, "Gridless Route Detail");
   assert.match(bundle, /gridlessExactFitTolerancePx[\s\S]*?config: !1/);

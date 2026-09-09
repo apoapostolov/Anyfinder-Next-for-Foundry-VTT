@@ -986,6 +986,14 @@ fn(pn), $(), Hooks.once("init", () => {
                 config: !0,
                 type: Boolean,
                 default: !0
+        }), game.settings.register("anyfinder-next", "enableGridlessPathfinding", {
+                name: "anyfinder-next.settings.enableGridlessPathfinding.name",
+                hint: "anyfinder-next.settings.enableGridlessPathfinding.hint",
+                scope: "world",
+                config: !0,
+                type: Boolean,
+                default: !0,
+                onChange: (value) => anxOnGridlessPathfindingSettingChanged(value)
         }), game.settings.register("anyfinder-next", "gridlessNodeStepPx", {
                 name: "anyfinder-next.settings.gridlessNodeStepPx.name",
                 hint: "anyfinder-next.settings.gridlessNodeStepPx.hint",
@@ -1011,6 +1019,15 @@ fn(pn), $(), Hooks.once("init", () => {
                 config: !0,
                 type: Boolean,
                 default: !0,
+                onChange: () => anxOnGridlessSettingChanged()
+        }), game.settings.register("anyfinder-next", "gridlessWallOverlapPercent", {
+                name: "anyfinder-next.settings.gridlessWallOverlapPercent.name",
+                hint: "anyfinder-next.settings.gridlessWallOverlapPercent.hint",
+                scope: "world",
+                config: !0,
+                type: Number,
+                range: { min: 0, max: 45, step: 1 },
+                default: 20,
                 onChange: () => anxOnGridlessSettingChanged()
         }), game.settings.register("anyfinder-next", "gridlessSqueezeLeewayPx", {
                 name: "anyfinder-next.settings.gridlessSqueezeLeewayPx.name",
@@ -1164,7 +1181,8 @@ const ANX_SETTING_DEFAULTS = {
   forcePathfindingAllPlayers: !0,
   fogExploration: !0,
   debugMode: !1,
-  gridlessAllowSqueeze: !0
+  gridlessAllowSqueeze: !0,
+  enableGridlessPathfinding: !0
 };
 function anxRenderSettingsSections(html) {
   const root = html?.[0] ?? html;
@@ -1173,20 +1191,34 @@ function anxRenderSettingsSections(html) {
   if (!form || !documentRef?.createElement)
     return;
   const sections = [
-    ["forcePathfindingAllPlayers", "anyfinder-next.settings.sections.general"],
-    ["gridlessNodeStepPx", "anyfinder-next.settings.sections.gridless"],
-    ["debugMode", "anyfinder-next.settings.sections.advanced"]
+    {
+      id: "general",
+      localizationKey: "anyfinder-next.settings.sections.general",
+      settings: ["forcePathfindingAllPlayers", "fogExploration"]
+    },
+    {
+      id: "gridless",
+      localizationKey: "anyfinder-next.settings.sections.gridless",
+      settings: ["enableGridlessPathfinding", "gridlessNodeStepPx", "gridlessAllowSqueeze", "gridlessWallOverlapPercent"]
+    },
+    {
+      id: "advanced",
+      localizationKey: "anyfinder-next.settings.sections.advanced",
+      settings: ["debugMode", "debugLogMode"]
+    }
   ];
-  for (const [setting, localizationKey] of sections) {
-    if (form.querySelector(`[data-anx-settings-section="${setting}"]`))
+  for (const { id, localizationKey, settings } of sections) {
+    if (form.querySelector(`[data-anx-settings-section="${id}"]`))
       continue;
-    const field = form.querySelector(`[name="${ANX_MODULE_ID}.${setting}"]`) || form.querySelector(`[name="${setting}"]`);
+    const field = settings
+      .map((setting) => form.querySelector(`[name="${ANX_MODULE_ID}.${setting}"]`) || form.querySelector(`[name="${setting}"]`))
+      .find(Boolean);
     const group = field?.closest?.(".form-group") ?? field?.closest?.("fieldset");
     if (!group?.parentNode)
       continue;
     const heading = documentRef.createElement("h3");
     heading.className = "anx-settings-section";
-    heading.dataset.anxSettingsSection = setting;
+    heading.dataset.anxSettingsSection = id;
     heading.textContent = game.i18n.localize(localizationKey);
     group.parentNode.insertBefore(heading, group);
   }
@@ -1196,6 +1228,7 @@ const ANX_STRING_SETTING_DEFAULTS = {
 };
 const ANX_NUMBER_SETTING_DEFAULTS = {
   gridlessSqueezeLeewayPx: 8,
+  gridlessWallOverlapPercent: 10,
   gridlessNodeStepPx: 40,
   gridlessMinCenterClearancePx: 4,
   gridlessExactFitTolerancePx: 0.75,
@@ -1220,7 +1253,7 @@ const anxPathCaptureState = {
 const anxGridlessFailureDigest = [];
 const ANX_GRIDLESS_NODE_BUDGET = 2e4;
 const ANX_GRIDLESS_MAX_STEP = 320;
-const ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO = 0.6;
+const ANX_GRIDLESS_DEFAULT_WALL_OVERLAP_PERCENT = 20;
 const ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS = 420;
 const ANX_GRIDLESS_FAIL_REUSE_MAX_AGE_MS = 260;
 const ANX_GRIDLESS_INTERACTIVE_INTERVAL_MS = 90;
@@ -2152,6 +2185,7 @@ function anxBuildWorkerSolvePayload(I, A, g, B, C) {
     },
     settings: {
       gridlessAllowSqueeze: anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze),
+      gridlessWallOverlapPercent: anxGetNumberSetting("gridlessWallOverlapPercent", ANX_NUMBER_SETTING_DEFAULTS.gridlessWallOverlapPercent, 0, 45),
       gridlessNodeStepPx: anxGetNumberSetting("gridlessNodeStepPx", ANX_NUMBER_SETTING_DEFAULTS.gridlessNodeStepPx, 16, 160),
       gridlessExactFitTolerancePx: anxGetGridlessExactFitTolerancePx()
     }
@@ -2162,6 +2196,7 @@ function anxBuildWorkerSolvePayload(I, A, g, B, C) {
     D.token.radiusPx.toFixed(3),
     D.token.cornerExtraPx.toFixed(3),
     D.settings.gridlessAllowSqueeze ? 1 : 0,
+    D.settings.gridlessWallOverlapPercent,
     D.settings.gridlessNodeStepPx,
     D.settings.gridlessExactFitTolerancePx
   ].join("|");
@@ -2169,6 +2204,25 @@ function anxBuildWorkerSolvePayload(I, A, g, B, C) {
 }
 function anxInvalidateGridlessCache() {
   anxGridlessCache.wallRevision += 1, anxGridlessCache.dataByStep.clear(), anxGridlessLastPathCache.clear(), anxGridlessDragReuseCache.clear(), anxGridlessFailCache.clear(), anxGridlessSolveRateCache.clear(), anxGridlessInteractiveBurstState.clear(), anxGridlessDragRegressionState.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear(), anxGridlessRejectionByToken.clear();
+}
+let anxGridlessPathfindingNoticeOpen = !1;
+function anxOnGridlessPathfindingSettingChanged(value) {
+  anxOnGridlessSettingChanged();
+  if (value !== !0 || !game.user?.isGM || anxGridlessPathfindingNoticeOpen)
+    return;
+  anxGridlessPathfindingNoticeOpen = !0;
+  const content = game.i18n.localize("anyfinder-next.settings.enableGridlessPathfinding.confirmation");
+  const confirm = async (accepted) => {
+    anxGridlessPathfindingNoticeOpen = !1;
+    if (!accepted)
+      await game.settings.set(ANX_MODULE_ID, "enableGridlessPathfinding", !1);
+  };
+  if (globalThis.foundry?.applications?.api?.DialogV2?.confirm)
+    globalThis.foundry.applications.api.DialogV2.confirm({ window: { title: game.i18n.localize("anyfinder-next.settings.enableGridlessPathfinding.name") }, content }).then((result) => confirm(result === true));
+  else if (globalThis.Dialog?.confirm)
+    Dialog.confirm({ title: game.i18n.localize("anyfinder-next.settings.enableGridlessPathfinding.name"), content, yes: () => confirm(!0), no: () => confirm(!1) });
+  else
+    confirm(!0);
 }
 function anxOnGridlessSettingChanged() {
   anxInvalidateGridlessCache();
@@ -2341,6 +2395,8 @@ function anxIsPathfindingEnabledForUser() {
 }
 function anxIsPathfindingEnabledInScene() {
   const I = anxGetScenePathfindingOverride();
+  if (anxIsStrictGridlessScene() && !anxGetBoolSetting("enableGridlessPathfinding", ANX_SETTING_DEFAULTS.enableGridlessPathfinding))
+    return !1;
   return I === null ? anxIsPathfindingEnabledForUser() : I;
 }
 async function anxTogglePathfindingKeybind() {
@@ -2697,7 +2753,11 @@ function anxGetTokenRadiusPx(I) {
 }
 function anxComputeGridlessClearancePx(I, A) {
   const B = Math.max(0, Number(I) || 0);
-  return Math.max(1, A ? B * ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO : B);
+  if (!A)
+    return B;
+  const overlapPercent = anxGetNumberSetting("gridlessWallOverlapPercent", ANX_NUMBER_SETTING_DEFAULTS.gridlessWallOverlapPercent, 0, 45);
+  const clearanceRatio = Math.max(0.1, 1 - overlapPercent / 50);
+  return Math.max(1, B * clearanceRatio);
 }
 function anxGetTokenGridlessClearancePx(I) {
   const A = anxGetTokenRadiusPx(I), g = anxGetBoolSetting("gridlessAllowSqueeze", ANX_SETTING_DEFAULTS.gridlessAllowSqueeze);
@@ -3226,7 +3286,7 @@ function anxFindGridlessSegmentPath(I, A, g, B = {}, C2 = null) {
   C2 && (C2.clearance = {
     tokenRadiusPx: o,
     squeezeEnabled: n,
-    minimumPassageDiameterRatio: ANX_GRIDLESS_SQUEEZE_RADIUS_RATIO,
+    wallOverlapPercent: anxGetNumberSetting("gridlessWallOverlapPercent", ANX_NUMBER_SETTING_DEFAULTS.gridlessWallOverlapPercent, 0, 45),
     effectiveClearancePx: W,
     cornerExtraPx: p,
     cornerGuardScale: T,
@@ -3527,7 +3587,7 @@ function anxGetConstraintHistory(I, A = null) {
 }
 function anxShouldUsePathfinding(I, A = null) {
   const g = anxGetConstrainOptions(I);
-  return canvas.scene && !g.ignoreWalls && !g.ignoreCost && anxIsPathfindingEnabledInScene() && !anxTokenHasPathfindingOptOut(A);
+  return canvas.scene && !g.ignoreWalls && !g.ignoreCost && anxIsPathfindingEnabledInScene() && (!anxIsStrictGridlessScene() || anxGetBoolSetting("enableGridlessPathfinding", ANX_SETTING_DEFAULTS.enableGridlessPathfinding)) && !anxTokenHasPathfindingOptOut(A);
 }
 function anxShouldHideFoundryDirectRulerSegment(I, A) {
   if (!A?.unreachable || A.userId !== game.user?.id)

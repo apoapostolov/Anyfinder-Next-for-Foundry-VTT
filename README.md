@@ -10,7 +10,8 @@ Forked from 7H3LaughingMan's Wayfinder v14 with hex grid awareness built into th
 - **660KB WASM** (vs 147KB in v13) — more sophisticated path graph with correct hex topology.
 - **Region support** — respects Foundry v14 Region movement restrictions.
 - **Cancellation tokens** — supports cancelling in-progress pathfinding.
-- **Gridless squeeze routing** — token-relative clearance supports passages down to about 60% of token width while keeping the movement and vision centerline on the legal side of every wall.
+- **Gridless squeeze routing** — token-relative clearance supports configurable wall overlap (20% of token width by default, equivalent to the previous 60%-width passage) while keeping the movement and vision centerline on the legal side of every wall.
+- **Gridless pathfinding opt-in notice** — pathfinding is enabled by default on gridless maps, with a GM acknowledgement explaining the possible dead zones and calculation delay.
 - **Foundry-verified gridless movement** — routes are solved in movement-origin coordinates, converted back to token positions, and rejected if Foundry's own collision constraint would alter them.
 - **Large-map gridless routing** — route-focused Worker graphs, spatial wall indexing, and adaptive fine-resolution retries preserve narrow alleys over long distances.
 

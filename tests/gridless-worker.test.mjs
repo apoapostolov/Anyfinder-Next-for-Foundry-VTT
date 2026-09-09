@@ -44,6 +44,7 @@ function payload(overrides = {}) {
     token: { radiusPx: 10, cornerExtraPx: 0 },
     settings: {
       gridlessAllowSqueeze: false,
+    gridlessWallOverlapPercent: 10,
       gridlessSqueezeLeewayPx: 0,
       gridlessMinCenterClearancePx: 0,
       gridlessNodeStepPx: 20,
@@ -111,12 +112,12 @@ test("enforces and reports the worker time budget", () => {
   assert.equal(result.reason, "time_cap_hit");
 });
 
-test("squeeze routes through a passage that is 60% of token diameter", () => {
+test("squeeze uses the conservative default overlap and accepts configurable tuning", () => {
   const input = payload();
   input.start = { x: 60, y: 100 };
   input.waypoints = [{ x: 340, y: 100 }];
   input.scene.rect = { x: 0, y: 0, width: 400, height: 200 };
-  input.scene.walls = [wall(0, 70, 400, 70), wall(0, 130, 400, 130)];
+  input.scene.walls = [wall(0, 60, 400, 60), wall(0, 140, 400, 140)];
   input.token.radiusPx = 50;
   input.settings.gridlessAllowSqueeze = true;
   input.settings.gridlessNodeStepPx = 10;
@@ -125,7 +126,24 @@ test("squeeze routes through a passage that is 60% of token diameter", () => {
 
   assert.equal(result.reason, null);
   assert.ok(Array.isArray(result.path));
-  assert.ok(result.path.every((point) => point.y > 70 && point.y < 130));
+  assert.ok(result.path.every((point) => point.y > 60 && point.y < 140));
+});
+
+test("zero wall overlap is accepted as a full-clearance configuration", () => {
+  const input = payload();
+  input.start = { x: 60, y: 100 };
+  input.waypoints = [{ x: 340, y: 100 }];
+  input.scene.rect = { x: 0, y: 0, width: 400, height: 200 };
+  input.scene.walls = [wall(0, 70, 400, 70), wall(0, 130, 400, 130)];
+  input.token.radiusPx = 50;
+  input.settings.gridlessAllowSqueeze = true;
+  input.settings.gridlessWallOverlapPercent = 0;
+  input.settings.gridlessNodeStepPx = 10;
+
+  const result = runWorker(input);
+
+  assert.equal(result.reason, null);
+  assert.deepEqual(result.path.at(-1), { x: 340, y: 100 });
 });
 
 test("squeeze never permits the center path to cross a wall", () => {
