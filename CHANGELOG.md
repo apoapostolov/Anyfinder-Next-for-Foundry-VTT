@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [14.0.6] - 2026-09-09
+
+Anyfinder Next for Foundry VTT v14. Gridless routing, conservative
+tight-passage tuning, and Foundry-verified movement validation.
+
+### Added
+
+- Added a Foundry-standard README with installation, settings, diagnostics,
+  compatibility, and development sections.
+- Added a configurable tight-passage wall-overlap slider.
+- Added default-on gridless pathfinding with a GM acknowledgement dialog.
+
+### Changed
+
+- Reduced the default tight-passage overlap to a conservative 10% of token
+  width instead of relying on a fixed 60%-passage assumption.
+- Grouped Anyfinder settings under logical H3 sections.
+
 ### Fixed
 
 - Expanded fail-closed gridless diagnostics with rejection stage/classification, readable reason, direct-route collision details, relevant wall IDs and geometry, token clearance, Worker state, cache state, and the last rejected candidate.
