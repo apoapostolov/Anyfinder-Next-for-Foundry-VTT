@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Gridless dragging now keeps its responsive freehand corridor only for a
+  bounded distance, then replaces the accumulated tail with a freshly verified
+  node route without hiding the current valid path.
+
+### Fixed
+
+- Removed the Worker waits and repeated wall-geometry transfers that caused
+  sub-second gridless drag pauses and dead zones around obstructed targets.
+- Prevented safely repaired gridless corridors from accumulating pointer
+  positions indefinitely as a freehand polyline.
+
 ## [14.0.6] - 2026-09-09
 
 Anyfinder Next for Foundry VTT v14. Gridless routing, conservative

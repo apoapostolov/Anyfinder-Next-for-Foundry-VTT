@@ -1151,8 +1151,8 @@ fn(pn), $(), Hooks.once("init", () => {
                 }
         }, 0));
 }), Hooks.on("canvasTearDown", (e) => {
-        anxPathCaptureEnabled() && anxPathCaptureState.traces.length > 0 && anxDebugWriteSessionLog();
-        anxDebugSessionFilename = null;
+        anxPathCaptureEnabled() && (anxPathCaptureState.traces.length > 0 || anxGridlessDebugState.traces.length > 0) && anxDebugWriteSessionLog();
+        anxDebugLogDirectoryReady = !1;
         anxInvalidateGridlessCache();
         anxGridlessPendingMovement.clear();
         anxGridlessLatestTraceByToken.clear();
@@ -1238,6 +1238,9 @@ const anxGridlessCache = {
   sceneId: null,
   wallRevision: 0,
   boundsKey: "",
+  wallSceneId: null,
+  wallSegments: null,
+  workerWalls: null,
   dataByStep: /* @__PURE__ */ new Map()
 };
 const ANX_GRIDLESS_SEGMENT_CACHE_MAX = 1800;
@@ -1257,9 +1260,10 @@ const ANX_GRIDLESS_DEFAULT_WALL_OVERLAP_PERCENT = 20;
 const ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS = 420;
 const ANX_GRIDLESS_FAIL_REUSE_MAX_AGE_MS = 260;
 const ANX_GRIDLESS_INTERACTIVE_INTERVAL_MS = 90;
+const ANX_GRIDLESS_WORKER_REFINE_DELAY_MS = 180;
+const ANX_GRIDLESS_CORRIDOR_REBASE_MIN_DISTANCE_PX = 80;
+const ANX_GRIDLESS_CORRIDOR_REBASE_MAX_REPAIRS = 16;
 const ANX_GRIDLESS_DRAG_SESSION_GAP_MS = 4e3;
-const ANX_GRIDLESS_RECALC_FRAME_INTERVAL = 8;
-const ANX_GRIDLESS_RECALC_FRAME_INTERVAL_DETOUR = 16;
 const anxGridlessPendingMovement = /* @__PURE__ */ new Map();
 const anxGridlessLatestTraceByToken = /* @__PURE__ */ new Map();
 const anxGridlessDragReuseCache = /* @__PURE__ */ new Map();
@@ -1271,13 +1275,14 @@ const anxGridlessRejectionByToken = /* @__PURE__ */ new Map();
 const anxGridlessWorkerState = {
   worker: null,
   seq: 0,
+  geometryKey: null,
   inflightByToken: /* @__PURE__ */ new Map(),
   latestPayloadByToken: /* @__PURE__ */ new Map(),
   resultByToken: /* @__PURE__ */ new Map(),
   lastGoodByToken: /* @__PURE__ */ new Map(),
-  displayedPathByToken: /* @__PURE__ */ new Map(),
   lastDiagByToken: /* @__PURE__ */ new Map(),
-  bootstrapByToken: /* @__PURE__ */ new Set()
+  bootstrapByToken: /* @__PURE__ */ new Set(),
+  refineByToken: /* @__PURE__ */ new Map()
 };
 function anxNowMs() {
   return typeof performance < "u" && typeof performance.now == "function" ? performance.now() : Date.now();
@@ -1576,7 +1581,7 @@ function anxPushGridlessTrace(I) {
     }
   }
   const C = anxBuildTraceDigest(I);
-  C && C.outcome !== "gridless_success" && anxPushFailureDigest(C), anxRememberLatestTraceForMovement(I), anxEmitGridlessTraceToConsole(I);
+  C && C.outcome !== "gridless_success" && anxPushFailureDigest(C), anxRememberLatestTraceForMovement(I), anxScheduleDebugLogWrite(), anxIsFullDebugMode() && anxEmitGridlessTraceToConsole(I);
 }
 function anxCloneTrace(I) {
   try {
@@ -1941,22 +1946,86 @@ function anxFinalizePathCapture(I, A = {}) {
     note: A.note ?? null
   };
   const p = anxCloneTrace(I);
-  return anxPushPathCaptureTrace(p), anxDebugWriteSessionLog(), p;
+  return anxPushPathCaptureTrace(p), anxScheduleDebugLogWrite(), p;
 }
-let anxDebugSessionFilename = null;
-function anxDebugWriteSessionLog() {
+const ANX_DEBUG_LOG_FILENAME = "anyfinder-next-debug-latest.json";
+const ANX_DEBUG_LOG_DEBOUNCE_MS = 1200;
+let anxDebugLogTimer = null;
+let anxDebugLogWriteInFlight = null;
+let anxDebugLogWriteQueued = !1;
+let anxDebugLogDirectoryReady = !1;
+function anxScheduleDebugLogWrite(I = ANX_DEBUG_LOG_DEBOUNCE_MS) {
+  if (!anxPathCaptureEnabled() || !game.user?.isGM)
+    return;
+  anxDebugLogTimer && clearTimeout(anxDebugLogTimer);
+  anxDebugLogTimer = setTimeout(() => {
+    anxDebugLogTimer = null, anxDebugWriteSessionLog();
+  }, Math.max(0, Number(I) || 0));
+}
+async function anxEnsureDebugLogDirectory(I) {
+  if (anxDebugLogDirectoryReady)
+    return;
+  const g = `modules/${ANX_MODULE_ID}/debug`;
   try {
-    const A = anxPathCaptureState.traces;
-    if (!A.length)
-      return;
-    if (!anxDebugSessionFilename) {
-      const B = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      anxDebugSessionFilename = `anyfinder-next-debug-${B}.json`;
-    }
-    const C = anxDebugSessionFilename, moduleVersion = game.modules?.get(ANX_MODULE_ID)?.version ?? "14.0.6", i = { exportedAt: Date.now(), exportedAtISO: new Date().toISOString(), moduleId: ANX_MODULE_ID, moduleVersion, traceCount: A.length, traces: anxCloneTrace(A) }, E = JSON.stringify(i, null, 2), D = new File([E], C, { type: "application/json" });
-    const fp = typeof foundry < "u" ? foundry?.applications?.apps?.FilePicker?.implementation : null;
-    fp && typeof fp.upload == "function" ? fp.upload("data", `modules/${ANX_MODULE_ID}/debug`, D, {}) : console.log("[Anyfinder Next] FilePicker unavailable — cannot write debug log to server.");
+    await I.createDirectory("data", g, {});
   } catch {
+  }
+  anxDebugLogDirectoryReady = !0;
+}
+async function anxDebugWriteSessionLog() {
+  if (!anxPathCaptureEnabled() || !game.user?.isGM)
+    return null;
+  if (!anxPathCaptureState.traces.length && !anxGridlessDebugState.traces.length && !anxGridlessFailureDigest.length)
+    return null;
+  if (anxDebugLogWriteInFlight)
+    return anxDebugLogWriteQueued = !0, anxDebugLogWriteInFlight;
+  const write = async () => {
+    try {
+      const modulePackage = game.modules?.get(ANX_MODULE_ID), moduleVersion = modulePackage?.version ?? "14.0.6", persistentPath = `modules/${ANX_MODULE_ID}/storage/${ANX_DEBUG_LOG_FILENAME}`, fallbackPath = `modules/${ANX_MODULE_ID}/debug/${ANX_DEBUG_LOG_FILENAME}`, payload = {
+        exportedAt: Date.now(),
+        exportedAtISO: new Date().toISOString(),
+        moduleId: ANX_MODULE_ID,
+        moduleVersion,
+        sceneId: canvas?.scene?.id ?? null,
+        worldId: game.world?.id ?? null,
+        gridlessTraceCount: anxGridlessDebugState.traces.length,
+        pathCaptureCount: anxPathCaptureState.traces.length,
+        failureDigestCount: anxGridlessFailureDigest.length,
+        failureDigest: anxCloneTrace(anxGridlessFailureDigest),
+        gridlessTraces: anxCloneTrace(anxGridlessDebugState.traces),
+        pathCaptures: anxCloneTrace(anxPathCaptureState.traces)
+      };
+      const fp = typeof foundry < "u" ? foundry?.applications?.apps?.FilePicker?.implementation : null;
+      if (!fp || typeof fp.upload != "function")
+        throw new Error("Foundry FilePicker is unavailable.");
+      const makeFile = (relativePath) => new File([JSON.stringify({ ...payload, relativePath }, null, 2)], ANX_DEBUG_LOG_FILENAME, { type: "application/json" });
+      let result = null;
+      if (typeof fp.uploadPersistent == "function")
+        try {
+          result = await fp.uploadPersistent(ANX_MODULE_ID, "", makeFile(persistentPath), {}, { notify: !1 });
+        } catch {
+        }
+      if (!result || result === !1) {
+        await anxEnsureDebugLogDirectory(fp);
+        result = await fp.upload("data", `modules/${ANX_MODULE_ID}/debug`, makeFile(fallbackPath), {}, { notify: !1 });
+      }
+      if (!result || result === !1)
+        throw new Error("Foundry did not confirm the debug-log upload.");
+      return result;
+    } catch (I) {
+      console.warn("[Anyfinder Next] Could not write the local pathfinding debug log.", I);
+      return null;
+    }
+  };
+  anxDebugLogWriteInFlight = write();
+  try {
+    return await anxDebugLogWriteInFlight;
+  } finally {
+    anxDebugLogWriteInFlight = null;
+    if (anxDebugLogWriteQueued) {
+      anxDebugLogWriteQueued = !1;
+      anxScheduleDebugLogWrite(100);
+    }
   }
 }
 function anxDebugGetPathTraces() {
@@ -1992,11 +2061,43 @@ function anxRecordGridlessRejection(I, A) {
   });
 }
 function anxTerminateGridlessWorker() {
+  for (const I of anxGridlessWorkerState.refineByToken.values())
+    clearTimeout(I.timer);
   try {
     anxGridlessWorkerState.worker && anxGridlessWorkerState.worker.terminate();
   } catch {
   }
-  anxGridlessWorkerState.worker = null, anxGridlessWorkerState.seq = 0, anxGridlessWorkerState.inflightByToken.clear(), anxGridlessWorkerState.latestPayloadByToken.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear(), anxGridlessRejectionByToken.clear();
+  anxGridlessWorkerState.worker = null, anxGridlessWorkerState.seq = 0, anxGridlessWorkerState.geometryKey = null, anxGridlessWorkerState.inflightByToken.clear(), anxGridlessWorkerState.latestPayloadByToken.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear(), anxGridlessWorkerState.refineByToken.clear(), anxGridlessRejectionByToken.clear();
+}
+function anxGetWorkerPayloadKey(I) {
+  const A = Array.isArray(I?.waypoints) && I.waypoints.length ? I.waypoints[I.waypoints.length - 1] : null;
+  return [I?.fingerprint ?? "", Number(I?.start?.x) || 0, Number(I?.start?.y) || 0, Number(A?.x) || 0, Number(A?.y) || 0].join("|");
+}
+function anxCancelGridlessWorkerRefinement(I, A = null) {
+  const g = anxGridlessWorkerState.refineByToken.get(I), B = A ? anxGetWorkerPayloadKey(A) : null;
+  if (g && (!B || g.key === B))
+    clearTimeout(g.timer), anxGridlessWorkerState.refineByToken.delete(I);
+  const C = anxGridlessWorkerState.latestPayloadByToken.get(I);
+  C && (!B || anxGetWorkerPayloadKey(C) === B) && anxGridlessWorkerState.latestPayloadByToken.delete(I);
+}
+function anxScheduleGridlessWorkerRefinement(I, A) {
+  if (A?.interactiveFast !== !0)
+    return;
+  const g = anxGetWorkerPayloadKey(A), B = anxGridlessWorkerState.refineByToken.get(I);
+  if (B?.key === g)
+    return;
+  B && clearTimeout(B.timer);
+  const C = setTimeout(() => {
+    const i = anxGridlessWorkerState.refineByToken.get(I);
+    if (!i || i.key !== g)
+      return;
+    anxGridlessWorkerState.refineByToken.delete(I);
+    const E = anxGridlessWorkerState.resultByToken.get(I), D = Array.isArray(A?.waypoints) && A.waypoints.length ? A.waypoints[A.waypoints.length - 1] : null, o = E && E.fingerprint === A.fingerprint && anxDistanceSquared(E.start || {}, A.start || {}) <= 1 && anxDistanceSquared(E.target || {}, D || {}) <= 1;
+    if (o && Array.isArray(E.path) && E.path.length >= 1)
+      return;
+    anxGridlessWorkerState.latestPayloadByToken.set(I, { ...A, interactiveFast: !1 }), anxDispatchWorkerSolveIfIdle(I);
+  }, ANX_GRIDLESS_WORKER_REFINE_DELAY_MS);
+  anxGridlessWorkerState.refineByToken.set(I, { key: g, timer: C });
 }
 function anxDispatchWorkerSolveIfIdle(I) {
   const A = anxGridlessWorkerState.worker;
@@ -2018,11 +2119,16 @@ function anxDispatchWorkerSolveIfIdle(I) {
     fingerprint: g?.fingerprint ?? null
   });
   try {
+    const scene = g?.scene, geometryKey = `${scene?.sceneId ?? "no-scene"}|${Number(scene?.wallRevision) || 0}`;
+    if (anxGridlessWorkerState.geometryKey !== geometryKey && Array.isArray(scene?.walls)) {
+      A.postMessage({ type: "set_geometry", scene }), anxGridlessWorkerState.geometryKey = geometryKey;
+    }
+    const payload = scene ? { ...g, scene: { ...scene, walls: null } } : g;
     A.postMessage({
       type: "solve",
       requestId: B,
       tokenId: I,
-      payload: g
+      payload
     });
   } catch (C) {
     anxGridlessWorkerState.inflightByToken.delete(I), anxDebugLog("Worker postMessage failed.", C);
@@ -2067,7 +2173,7 @@ function anxEnsureGridlessWorker() {
           target: anxSanitizePoint(i.target),
           workerFinal: i.diag?.final ?? null
         });
-      if (anxGetBoolSetting("debugMode", !1) && i.diag) {
+      if (anxIsFullDebugMode() && i.diag) {
         const E2 = Array.isArray(i.diag?.attempts) ? i.diag.attempts.length : 0, D2 = Array.isArray(i.diag?.attempts) ? i.diag.attempts.reduce((o, n) => o + (Number(n?.simplifySkippedSegments) || 0), 0) : 0, o2 = i.diag?.final?.reason ?? i.reason ?? "unknown";
         console.log(`Anyfinder WorkerDiag token=${B} reason=${o2} attempts=${E2} simplifySkips=${D2}`);
       }
@@ -2085,7 +2191,7 @@ function anxQueueGridlessWorkerSolve(I, A) {
   const g = anxEnsureGridlessWorker();
   if (!g)
     return !1;
-  return anxGridlessWorkerState.latestPayloadByToken.set(I, A), anxDispatchWorkerSolveIfIdle(I), !0;
+  return anxGridlessWorkerState.latestPayloadByToken.set(I, A), anxScheduleGridlessWorkerRefinement(I, A), anxDispatchWorkerSolveIfIdle(I), !0;
 }
 function anxTryConsumeWorkerResult(I, A, g, B, C2 = null) {
   const C = Math.max(6, Math.min(24, Number(B) * 0.35 || 12)), i = C * C, E = anxGridlessWorkerState.resultByToken.get(I);
@@ -2105,18 +2211,24 @@ function anxTryConsumeWorkerResult(I, A, g, B, C2 = null) {
     const D = anxDistanceSquared(E.start || {}, A), o = Math.max(24, Math.min(160, Number(B) * 1.2 || 60)), n = o * o, m = anxDistanceSquared(E.target || {}, g);
     if (D <= i && m <= n) {
       anxGridlessWorkerState.resultByToken.delete(I);
-      const O = anxBuildWorkerOverlayPath(A, g, E.path);
+      const W = C2?.settings, p = C2?.token, profile = {
+        clearance: anxComputeGridlessClearancePx(Number(p?.radiusPx) || 0, W?.gridlessAllowSqueeze === !0),
+        cornerGuard: 0
+      };
+      profile.cornerGuard = Math.max(0, Math.min(Number(p?.cornerExtraPx) || 0, profile.clearance * 0.35));
+      const O = anxTryRetargetGridlessCenterPath(E.path, A, g, profile);
       if (O) {
-        const W = C2?.settings, p = C2?.token, T = anxComputeGridlessClearancePx(Number(p?.radiusPx) || 0, W?.gridlessAllowSqueeze === !0), x = Math.max(0, Math.min(Number(p?.cornerExtraPx) || 0, T * 0.35)), _ = anxValidatePathCollisionFromStart(O, A, anxGetBlockingWallSegments(), T, canvas?.dimensions?.sceneRect, x);
-        if (_.blockedPointIndex < 0 && _.blockedSegmentIndex < 0 && !_.startConnectorBlocked)
-          return O;
-        anxRecordGridlessRejection(I, {
-          stage: "worker_current_geometry_validation",
-          reason: "worker_path_collision",
-          validation: _,
-          candidatePath: anxSanitizePointPath(O)
-        }), anxDebugLog("Rejected worker path after current-geometry validation.", _);
+        return O;
       }
+      anxRecordGridlessRejection(I, {
+        stage: "worker_current_geometry_validation",
+        reason: "worker_path_collision",
+        workerTarget: anxSanitizePoint(E.target),
+        currentTarget: anxSanitizePoint(g),
+        candidatePath: anxSanitizePointPath(E.path)
+      }), anxDebugLog("Rejected worker path after safe endpoint repair.");
+    } else {
+      anxGridlessWorkerState.resultByToken.delete(I);
     }
   }
   return null;
@@ -2138,38 +2250,11 @@ async function anxWaitForGridlessWorkerPath(I, A, g, B, C, i, E = 1200) {
   }
   return null;
 }
-function anxGetDisplayedWorkerPath(I, A, g, B) {
-  const C = anxGridlessWorkerState.displayedPathByToken.get(I);
-  if (!C || !Array.isArray(C.path) || C.path.length < 1)
-    return null;
-  const i = Math.max(8, Math.min(32, Number(B) * 0.5 || 14)), E = i * i;
-  if (anxNowMs() - (C.t || 0) > 2200)
-    return null;
-  const D = anxDistanceSquared(C.start || {}, A), o = anxDistanceSquared(C.target || {}, g);
-  return D <= E && o <= E ? C.path : null;
-}
-function anxSetDisplayedWorkerPath(I, A, g, B) {
-  if (!I || !Array.isArray(B) || B.length < 1)
-    return;
-  anxGridlessWorkerState.displayedPathByToken.set(I, {
-    t: anxNowMs(),
-    start: { x: Number(A?.x) || 0, y: Number(A?.y) || 0 },
-    target: { x: Number(g?.x) || 0, y: Number(g?.y) || 0 },
-    path: B
-  });
-}
 function anxBuildWorkerSolvePayload(I, A, g, B, C) {
   const i = canvas?.dimensions?.sceneRect;
   if (!i)
     return null;
-  const E = anxGetBlockingWallSegments().map((n) => ({
-    a: { x: Number(n?.a?.x) || 0, y: Number(n?.a?.y) || 0 },
-    b: { x: Number(n?.b?.x) || 0, y: Number(n?.b?.y) || 0 },
-    minX: Number(n?.minX ?? Math.min(Number(n?.a?.x) || 0, Number(n?.b?.x) || 0)) || 0,
-    minY: Number(n?.minY ?? Math.min(Number(n?.a?.y) || 0, Number(n?.b?.y) || 0)) || 0,
-    maxX: Number(n?.maxX ?? Math.max(Number(n?.a?.x) || 0, Number(n?.b?.x) || 0)) || 0,
-    maxY: Number(n?.maxY ?? Math.max(Number(n?.a?.y) || 0, Number(n?.b?.y) || 0)) || 0
-  })), D = {
+  const E = anxGetWorkerWallPayload(), D = {
     start: { x: Number(g?.x) || 0, y: Number(g?.y) || 0 },
     waypoints: (Array.isArray(A) ? A : []).map((n) => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 })),
     interactiveFast: C?.__anxInteractiveFast === !0,
@@ -2203,7 +2288,10 @@ function anxBuildWorkerSolvePayload(I, A, g, B, C) {
   return D.waypoints.length ? D : null;
 }
 function anxInvalidateGridlessCache() {
-  anxGridlessCache.wallRevision += 1, anxGridlessCache.dataByStep.clear(), anxGridlessLastPathCache.clear(), anxGridlessDragReuseCache.clear(), anxGridlessFailCache.clear(), anxGridlessSolveRateCache.clear(), anxGridlessInteractiveBurstState.clear(), anxGridlessDragRegressionState.clear(), anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.displayedPathByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear(), anxGridlessRejectionByToken.clear();
+  for (const I of anxGridlessWorkerState.refineByToken.values())
+    clearTimeout(I.timer);
+  anxGridlessCache.wallRevision += 1, anxGridlessCache.wallSceneId = null, anxGridlessCache.wallSegments = null, anxGridlessCache.workerWalls = null, anxGridlessCache.dataByStep.clear(), anxGridlessLastPathCache.clear(), anxGridlessDragReuseCache.clear(), anxGridlessFailCache.clear(), anxGridlessSolveRateCache.clear(), anxGridlessInteractiveBurstState.clear(), anxGridlessDragRegressionState.clear(), anxGridlessWorkerState.geometryKey = null, anxGridlessWorkerState.resultByToken.clear(), anxGridlessWorkerState.lastGoodByToken.clear(), anxGridlessWorkerState.lastDiagByToken.clear(), anxGridlessWorkerState.bootstrapByToken.clear(), anxGridlessRejectionByToken.clear();
+  anxGridlessWorkerState.refineByToken.clear();
 }
 let anxGridlessPathfindingNoticeOpen = !1;
 function anxOnGridlessPathfindingSettingChanged(value) {
@@ -2504,17 +2592,45 @@ function anxIsStrictHexScene() {
     return !0;
   return I.isHexagonal === !0 && I.isGridless !== !0;
 }
-function anxBuildWorkerOverlayPath(I, A, g) {
-  const B = anxClonePointPath(g);
-  if (!B.length)
+function anxGetGridlessCollisionProfile(I) {
+  const A = anxGetTokenGridlessClearancePx(I), g = anxGetTokenCornerExtraPx(I);
+  return {
+    clearance: A,
+    cornerGuard: Math.max(0, Math.min(g, A * 0.35))
+  };
+}
+function anxValidateGridlessCenterPath(I, A, g) {
+  const B = canvas?.dimensions?.sceneRect;
+  if (!B || !Array.isArray(I) || I.length < 2)
     return null;
-  const C = { x: Number(I?.x) || 0, y: Number(I?.y) || 0 }, i = { x: Number(A?.x) || 0, y: Number(A?.y) || 0 }, E = 1;
-  for (; B.length > 0 && anxDistanceSquared(B[0], C) <= E; )
-    B.shift();
-  B.unshift(C);
-  if (!B.length || anxDistanceSquared(B[B.length - 1], i) > E)
-    B.push(i);
-  return B.length ? B : null;
+  const C = anxValidatePathCollisionFromStart(I, A, anxGetBlockingWallSegments(), Number(g?.clearance) || 0, B, Number(g?.cornerGuard) || 0);
+  return C.blockedPointIndex < 0 && C.blockedSegmentIndex < 0 && !C.startConnectorBlocked ? C : null;
+}
+function anxTryRetargetGridlessCenterPath(I, A, g, B) {
+  if (!Array.isArray(I) || !I.length || !A || !g)
+    return null;
+  const C = anxEnsureGridlessCenterPathStartsAt(A, I), i = 0.01 * 0.01;
+  for (let E = C.length - 1; E >= 0; E--) {
+    const D = C.slice(0, E + 1);
+    anxDistanceSquared(D[D.length - 1], g) <= i ? D[D.length - 1] = { x: Number(g.x) || 0, y: Number(g.y) || 0 } : D.push({ x: Number(g.x) || 0, y: Number(g.y) || 0 });
+    if (anxValidateGridlessCenterPath(D, A, B))
+      return D;
+  }
+  return null;
+}
+function anxAdvanceGridlessCorridorState(I, A, g) {
+  const B = Number(I?.target?.x), C = Number(I?.target?.y), i = Number(A?.x), E = Number(A?.y), D = Number.isFinite(B) && Number.isFinite(C) && Number.isFinite(i) && Number.isFinite(E) ? Math.hypot(i - B, E - C) : 0, o = (Number(I?.repairDistancePx) || 0) + D, n = (Number(I?.repairCount) || 0) + 1, m = Math.max(ANX_GRIDLESS_CORRIDOR_REBASE_MIN_DISTANCE_PX, (Number(g) || 0) * 2.5);
+  return {
+    repairDistancePx: o,
+    repairCount: n,
+    rebasePending: I?.rebasePending === !0 || o >= m || n >= ANX_GRIDLESS_CORRIDOR_REBASE_MAX_REPAIRS
+  };
+}
+function anxPrepareVerifiedGridlessCenterPath(I, A, g, B, C) {
+  if (!anxValidateGridlessCenterPath(A, g, anxGetGridlessCollisionProfile(I)))
+    return null;
+  const i = anxPrepareGridlessPathForFoundry(I, A, B, C);
+  return Array.isArray(i) ? { centerPath: anxEnsureGridlessCenterPathStartsAt(g, A), foundryPath: i } : null;
 }
 function anxClonePointPath(I) {
   return Array.isArray(I) ? I.map((A) => ({ x: Number(A?.x) || 0, y: Number(A?.y) || 0 })) : [];
@@ -2584,8 +2700,11 @@ function anxWallBlocksMovement(I) {
   return !0;
 }
 function anxGetBlockingWallSegments() {
+  const sceneId = canvas?.scene?.id ?? "no-scene";
+  if (anxGridlessCache.wallSceneId === sceneId && Array.isArray(anxGridlessCache.wallSegments))
+    return anxGridlessCache.wallSegments;
   const I = canvas?.walls?.placeables ?? [];
-  return I.map((A) => A?.document).filter((A) => A && anxWallBlocksMovement(A)).map((A) => {
+  const walls = I.map((A) => A?.document).filter((A) => A && anxWallBlocksMovement(A)).map((A) => {
     const g = Array.isArray(A.c) ? A.c : [0, 0, 0, 0];
     const B = Number(g[0]) || 0, C = Number(g[1]) || 0, i = Number(g[2]) || 0, E = Number(g[3]) || 0;
     return {
@@ -2601,6 +2720,20 @@ function anxGetBlockingWallSegments() {
       maxY: Math.max(C, E)
     };
   });
+  return anxGridlessCache.wallSceneId = sceneId, anxGridlessCache.wallSegments = walls, anxGridlessCache.workerWalls = null, walls;
+}
+function anxGetWorkerWallPayload() {
+  if (Array.isArray(anxGridlessCache.workerWalls))
+    return anxGridlessCache.workerWalls;
+  const walls = anxGetBlockingWallSegments().map((I) => ({
+    a: { x: Number(I?.a?.x) || 0, y: Number(I?.a?.y) || 0 },
+    b: { x: Number(I?.b?.x) || 0, y: Number(I?.b?.y) || 0 },
+    minX: Number(I?.minX ?? Math.min(Number(I?.a?.x) || 0, Number(I?.b?.x) || 0)) || 0,
+    minY: Number(I?.minY ?? Math.min(Number(I?.a?.y) || 0, Number(I?.b?.y) || 0)) || 0,
+    maxX: Number(I?.maxX ?? Math.max(Number(I?.a?.x) || 0, Number(I?.b?.x) || 0)) || 0,
+    maxY: Number(I?.maxY ?? Math.max(Number(I?.a?.y) || 0, Number(I?.b?.y) || 0)) || 0
+  }));
+  return anxGridlessCache.workerWalls = walls, walls;
 }
 function anxGetNearbyWallsForSegment(I, A, g, B) {
   const C = Math.min(I.x, A.x) - g, i = Math.max(I.x, A.x) + g, E = Math.min(I.y, A.y) - g, D = Math.max(I.y, A.y) + g, o = [];
@@ -3315,7 +3448,10 @@ function anxFindGridlessSegmentPath(I, A, g, B = {}, C2 = null) {
   const segmentCacheKey = anxBuildGridlessSegmentCacheKey(E, $, ii, W, graphGuard), cachedPath = anxGetCachedGridlessSegmentPath(E, segmentCacheKey);
   if (cachedPath && cachedPath.length >= 2) {
     cachedPath[0] = { x: A.x, y: A.y }, cachedPath[cachedPath.length - 1] = { x: g.x, y: g.y };
-    return C2 && (C2.cache = "segment_path_hit", C2.result = { reason: null, pointCount: cachedPath.length }, C2.endedMs = anxNowMs(), C2.elapsedMs = C2.endedMs - C2.startedMs, C2.counters = S2 ? { ...S2 } : null), { path: cachedPath, reason: null };
+    const cachedValidation = anxValidatePathCollisionFromStart(cachedPath, A, E.walls, W, E.sceneRect, x);
+    if (cachedValidation.blockedPointIndex < 0 && cachedValidation.blockedSegmentIndex < 0 && !cachedValidation.startConnectorBlocked)
+      return C2 && (C2.cache = "segment_path_hit", C2.result = { reason: null, pointCount: cachedPath.length }, C2.endedMs = anxNowMs(), C2.elapsedMs = C2.endedMs - C2.startedMs, C2.counters = S2 ? { ...S2 } : null), { path: cachedPath, reason: null };
+    E.segmentPathCache.delete(segmentCacheKey), C2 && (C2.cache = "segment_path_rejected");
   }
   const Hh = E.cols * E.rows, ke = Hh, wt = Hh + 1, Ct = Hh + 2, Xe = new Float64Array(Ct), He = new Float64Array(Ct), Ge = new Int32Array(Ct), Fe = new Set();
   for (let u = 0; u < Ct; u++)
@@ -3617,6 +3753,50 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
         tRoute += Math.hypot(H2.x - tPrev.x, H2.y - tPrev.y), tPrev = H2;
       }
       const longRoute = tRoute >= Math.max(1200, O2 * 24);
+      const collisionProfile = anxGetGridlessCollisionProfile(I);
+      const commitGridlessSuccess = (X2, H2, K2, q2 = null, corridorState = null) => {
+        const J2 = anxEnsureGridlessCenterPathStartsAt(iStart, X2), v2 = anxNowMs();
+        n2 && K2 !== "drag_corridor_repair" && anxCancelGridlessWorkerRefinement(n2);
+        n2 && anxGridlessFailCache.delete(n2), n2 && anxGridlessLastPathCache.set(n2, {
+          t: v2,
+          path: H2,
+          centerPath: anxClonePointPath(J2)
+        }), n2 && Number.isFinite(D2) && Number.isFinite(o2) && anxGridlessDragReuseCache.set(n2, {
+          t: v2,
+          start: { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 },
+          target: { x: D2, y: o2 },
+          path: H2,
+          centerPath: anxClonePointPath(J2),
+          frame: 0,
+          detour: J2.length > 2,
+          repairDistancePx: Number(corridorState?.repairDistancePx) || 0,
+          repairCount: Number(corridorState?.repairCount) || 0,
+          rebasePending: corridorState?.rebasePending === !0
+        });
+        const f2 = J2[J2.length - 1], e2 = Array.isArray(A) && A.length > 0 ? A[A.length - 1] : null;
+        return B && (B.final = {
+          outcome: "gridless_success",
+          source: K2,
+          reason: q2,
+          pathLength: J2.length,
+          elapsedMs: v2 - B.startedMs,
+          expectedFinalCenter: f2 ? { x: Number(f2.x) || 0, y: Number(f2.y) || 0 } : null,
+          requestedFinalWaypoint: e2 ? { x: Number(e2.x) || 0, y: Number(e2.y) || 0 } : null,
+          movementObservation: {
+            status: "pending_observation",
+            observedCenter: null,
+            distanceToExpectedPx: null,
+            updates: 0,
+            elapsedMs: 0
+          }
+        }, anxPushGridlessTrace(anxCloneTrace(B))), reportDragOutcome("gridless_success", !0, q2, { source: K2, pathLength: J2.length }), H2;
+      };
+      const directCenterPath = centerDestinations.length > 0 ? [
+        { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 },
+        ...centerDestinations.map((X2) => ({ x: Number(X2?.x) || 0, y: Number(X2?.y) || 0 }))
+      ] : null, directVerified = directCenterPath ? anxPrepareVerifiedGridlessCenterPath(I, directCenterPath, iStart, A, "direct_fast_path") : null;
+      if (directVerified)
+        return commitGridlessSuccess(directVerified.centerPath, directVerified.foundryPath, "direct_fast_path");
       let r2 = !1;
       if (n2) {
         const X2 = anxGridlessSolveRateCache.get(n2);
@@ -3636,21 +3816,33 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
         if (v2) {
           const X2 = anxDistanceSquared({ x: D2, y: o2 }, v2.target), H2 = anxDistanceSquared(iStart, v2.start);
           const KSoftTarget = Math.max(36, W2 * 6), qSoftStart = Math.max(18, p2 * 6);
-          if (X2 <= KSoftTarget * KSoftTarget && H2 <= qSoftStart * qSoftStart && Array.isArray(v2.path)) {
+          if (X2 <= KSoftTarget * KSoftTarget && H2 <= qSoftStart * qSoftStart && Array.isArray(v2.centerPath)) {
             v2.frame = (v2.frame || 0) + 1;
-            const K2 = v2.detour ? ANX_GRIDLESS_RECALC_FRAME_INTERVAL_DETOUR : ANX_GRIDLESS_RECALC_FRAME_INTERVAL;
-            if (!hasWorkerPathBackend && m2 - v2.t <= ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS && v2.frame % K2 !== 0 && anxFoundryPathMatchesRequestedEndpoints(v2.path, A)) {
-              reportDragOutcome("drag_reuse_cached_path", !0, null, { source: "dragReuseCache" });
-              return v2.path;
+            if (m2 - v2.t <= Math.max(2200, ANX_GRIDLESS_DRAG_REUSE_MAX_AGE_MS) && centerDestinations.length === 1) {
+              const K2 = anxTryRetargetGridlessCenterPath(v2.centerPath, iStart, { x: D2, y: o2 }, collisionProfile), q2 = K2 ? anxPrepareGridlessPathForFoundry(I, K2, A, "drag_corridor_repair") : null;
+              if (K2 && q2) {
+                const corridorState = anxAdvanceGridlessCorridorState(v2, { x: D2, y: o2 }, O2);
+                if (corridorState.rebasePending) {
+                  const rebasePayload = anxBuildWorkerSolvePayload(I, centerDestinations, iStart, O2, {
+                    ...g,
+                    __anxInteractiveFast: !longRoute
+                  });
+                  rebasePayload && anxQueueGridlessWorkerSolve(n2, rebasePayload);
+                  let rebasedCenterPath = anxTryConsumeWorkerResult(n2, { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 }, { x: D2, y: o2 }, O2, rebasePayload), rebasedFoundryPath = Array.isArray(rebasedCenterPath) && rebasedCenterPath.length >= 1 ? anxPrepareGridlessPathForFoundry(I, rebasedCenterPath, A, "worker_corridor_rebase") : null;
+                  if (Array.isArray(rebasedCenterPath) && rebasedCenterPath.length >= 1 && rebasedFoundryPath)
+                    return commitGridlessSuccess(rebasedCenterPath, rebasedFoundryPath, "worker_corridor_rebase");
+                }
+                return commitGridlessSuccess(K2, q2, "drag_corridor_repair", null, corridorState);
+              }
             }
           }
         }
         const f2 = anxGridlessFailCache.get(n2);
-        if (f2 && !longRoute) {
+        if (f2 && !longRoute && !hasWorkerPathBackend) {
           const X2 = anxDistanceSquared({ x: D2, y: o2 }, f2.target), H2 = anxDistanceSquared(iStart, f2.start), K2 = Math.max(72, W2 * 6), q2 = Math.max(24, p2 * 6);
           if (m2 - f2.t <= ANX_GRIDLESS_FAIL_REUSE_MAX_AGE_MS && X2 <= K2 * K2 && H2 <= q2 * q2) {
             const J2 = anxGridlessLastPathCache.get(n2);
-            if (!hasWorkerPathBackend && J2 && Array.isArray(J2.path) && m2 - J2.t <= 400 && anxFoundryPathMatchesRequestedEndpoints(J2.path, A)) {
+            if (J2 && Array.isArray(J2.path) && m2 - J2.t <= 400 && anxFoundryPathMatchesRequestedEndpoints(J2.path, A)) {
               reportDragOutcome("reused_last_valid_path", !0, f2.reason ?? "recent_failed_target", { source: "failCache" });
               return J2.path;
             }
@@ -3665,7 +3857,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
       if (i && Number.isFinite(D2) && Number.isFinite(o2)) {
         const D = anxBuildWorkerSolvePayload(I, centerDestinations, iStart, O2, {
           ...g,
-          __anxInteractiveFast: r2
+          __anxInteractiveFast: !longRoute
         });
         D && anxQueueGridlessWorkerSolve(i, D);
         let o = anxTryConsumeWorkerResult(
@@ -3675,40 +3867,11 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
           O2,
           D
         );
-        if ((!Array.isArray(o) || o.length < 1) && anxGridlessWorkerState.worker && (longRoute || anxGridlessWorkerState.bootstrapByToken.has(i)))
-          o = await anxWaitForGridlessWorkerPath(i, { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 }, { x: D2, y: o2 }, O2, D, gridCancellationToken, longRoute ? 8e3 : 1200);
         const foundryWorkerPath = Array.isArray(o) && o.length >= 1 ? anxPrepareGridlessPathForFoundry(I, o, A, "worker") : null;
         if (Array.isArray(o) && o.length >= 1 && !foundryWorkerPath)
           o = null;
         if (Array.isArray(o) && o.length >= 1) {
-          anxSetDisplayedWorkerPath(i, { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 }, { x: D2, y: o2 }, o);
-          i && anxGridlessFailCache.delete(i), i && anxGridlessLastPathCache.set(i, {
-            t: E,
-            path: foundryWorkerPath
-          }), i && anxGridlessDragReuseCache.set(i, {
-            t: E,
-            start: { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 },
-            target: { x: D2, y: o2 },
-            path: foundryWorkerPath,
-            frame: 0,
-            detour: o.length > 3
-          });
-          const n = o[o.length - 1], m = Array.isArray(A) && A.length > 0 ? A[A.length - 1] : null;
-          return B && (B.final = {
-            outcome: "gridless_success",
-            reason: null,
-            pathLength: o.length,
-            elapsedMs: E - B.startedMs,
-            expectedFinalCenter: n ? { x: Number(n.x) || 0, y: Number(n.y) || 0 } : null,
-            requestedFinalWaypoint: m ? { x: Number(m.x) || 0, y: Number(m.y) || 0 } : null,
-            movementObservation: {
-              status: "pending_observation",
-              observedCenter: null,
-              distanceToExpectedPx: null,
-              updates: 0,
-              elapsedMs: 0
-            }
-          }, anxPushGridlessTrace(anxCloneTrace(B))), reportDragOutcome("gridless_success", !0, null, { source: "worker_result", pathLength: o.length }), foundryWorkerPath;
+          return commitGridlessSuccess(o, foundryWorkerPath, "worker_result");
         }
         if (anxGridlessWorkerState.worker) {
           bootstrapGridlessPath = !anxGridlessWorkerState.bootstrapByToken.has(i);
@@ -3728,37 +3891,7 @@ async function anxFindPathWithFallback(I, A, g, gridCancellationToken = null) {
       const foundryMainPath = Array.isArray(C.path) ? anxPrepareGridlessPathForFoundry(I, C.path, A, "main") : null;
       Array.isArray(C.path) && !foundryMainPath && (C.path = null, C.reason = "foundry_collision_rejected");
       if (Array.isArray(C.path) && foundryMainPath) {
-        i && anxGridlessFailCache.delete(i);
-        i && anxGridlessLastPathCache.set(i, {
-          t: E,
-          path: foundryMainPath
-        });
-        i && Number.isFinite(D2) && Number.isFinite(o2) && anxGridlessDragReuseCache.set(i, {
-          t: E,
-          start: { x: Number(iStart.x) || 0, y: Number(iStart.y) || 0 },
-          target: { x: D2, y: o2 },
-          path: foundryMainPath,
-          frame: 0,
-          detour: Array.isArray(C.path) && C.path.length > 3
-        });
-        const D = C.path[C.path.length - 1], o = Array.isArray(A) && A.length > 0 ? A[A.length - 1] : null;
-        B && (B.final = {
-          outcome: "gridless_success",
-          reason: null,
-          pathLength: C.path.length,
-          elapsedMs: E - B.startedMs,
-          expectedFinalCenter: D ? { x: Number(D.x) || 0, y: Number(D.y) || 0 } : null,
-          requestedFinalWaypoint: o ? { x: Number(o.x) || 0, y: Number(o.y) || 0 } : null,
-          movementObservation: {
-            status: "pending_observation",
-            observedCenter: null,
-            distanceToExpectedPx: null,
-            updates: 0,
-            elapsedMs: 0
-          }
-        }, anxPushGridlessTrace(anxCloneTrace(B)));
-        reportDragOutcome("gridless_success", !0, null, { pathLength: C.path.length });
-        return foundryMainPath;
+        return commitGridlessSuccess(C.path, foundryMainPath, "main_solver");
       }
       i && C.reason && anxGridlessFailCache.set(i, {
         t: E,

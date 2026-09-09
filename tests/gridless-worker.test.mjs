@@ -69,6 +69,24 @@ function runWorker(input, clock = performance) {
   return structuredClone(response);
 }
 
+function createWorkerHarness(clock = performance) {
+  let response;
+  const context = vm.createContext({
+    performance: clock,
+    self: { postMessage: (message) => { response = message; } },
+  });
+  vm.runInContext(workerSource, context, {
+    filename: "anyfinder-gridless-worker.js",
+  });
+  return {
+    send(data) {
+      response = undefined;
+      context.self.onmessage({ data });
+      return response === undefined ? undefined : structuredClone(response);
+    },
+  };
+}
+
 test("returns a direct route in open space and echoes geometry identity", () => {
   const result = runWorker(payload());
 
@@ -78,6 +96,26 @@ test("returns a direct route in open space and echoes geometry identity", () => 
   assert.equal(result.fingerprint, "scene-a|7|fixture");
   assert.equal(result.reason, null);
   assert.deepEqual(result.path.at(-1), { x: 340, y: 60 });
+});
+
+test("reuses wall geometry without cloning it into every solve request", () => {
+  const input = payload();
+  const harness = createWorkerHarness();
+  assert.equal(harness.send({ type: "set_geometry", scene: input.scene }), undefined);
+  input.scene = { ...input.scene, walls: null };
+  const first = harness.send({ type: "solve", requestId: 1, tokenId: "token-a", payload: input });
+  input.waypoints = [{ x: 300, y: 80 }];
+  const second = harness.send({ type: "solve", requestId: 2, tokenId: "token-a", payload: input });
+
+  assert.equal(first.reason, null);
+  assert.equal(second.reason, null);
+  assert.deepEqual(second.path.at(-1), { x: 300, y: 80 });
+});
+
+test("rounded worker cache hits revalidate their exact endpoint connectors", () => {
+  assert.match(workerSource, /const pointsValid = copy\.every/);
+  assert.match(workerSource, /const edgesValid = pointsValid/);
+  assert.match(workerSource, /data\.segmentPathCache\.delete\(ck\)/);
 });
 
 test("routes around a blocking wall instead of crossing it", () => {

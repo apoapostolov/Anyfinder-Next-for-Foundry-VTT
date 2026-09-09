@@ -20,7 +20,7 @@ This pass migrated the useful normal-Anyfinder integration fixes and hardened th
 | Missing `lib-wrapper` | Ready hook could fail | Warning plus native Foundry behavior |
 | v14 grid backend | Dispatcher had an invalid four-argument call | Five arguments, with cancellable token |
 | Gridless first request | Always returned native straight fallback while Worker built its first graph | One bounded synchronous bootstrap solve per token |
-| Fast drag Worker reuse | `1.2 s`, about `1.5–4 px` target drift | `5 s`, `24–160 px`, scaled to node step |
+| Fast drag Worker reuse | `1.2 s`, about `1.5–4 px` target drift | Validated path-corridor repair to the current exact target |
 | Stale Worker answer | Age/proximity only | Scene ID, wall revision, token/settings fingerprint, and collision validation |
 | Wall mutation | Gridless data survived wall edits | Create/update/delete hooks invalidate all gridless derived state |
 | Setting mutation | Masks and graphs survived clearance changes | Relevant setting callbacks invalidate and re-warm |
@@ -28,6 +28,10 @@ This pass migrated the useful normal-Anyfinder integration fixes and hardened th
 | Cold scene | Worker and graph initialized lazily | Worker starts and main scene/graph caches warm on `canvasReady` |
 | Main graph | Every edge checked twice; diagonal corner cutting possible | Symmetric edge construction and orthogonal-corner guard |
 | Worker budget | `maxTimeMs` existed but was ignored | Monotonic time cap enforced in primary and fallback searches |
+| Open/short movement | Entered Worker/node scheduling | Synchronous wall + Foundry validation bypasses A* |
+| Drag-frame waiting | Up to `1.2 s` normally and `8 s` for long routes | No Worker wait in the pointer hot path |
+| Worker geometry | Every request cloned the full wall list | One immutable snapshot per wall revision |
+| Rounded path caches | Replaced exact endpoints without revalidation | Revalidate connectors or evict and search |
 | v14 options | Some paths read legacy top-level fields | History/ignore flags normalized through `constrainOptions` |
 
 Automated Node tests exercise the Worker in open space, around a blocking wall, against a sealed scene, and around a joined hard corner. Integration tests guard the wrapper signature, lifecycle hooks, stale-result checks, corner-cut prevention, coordinate conversion, Foundry's final collision gate, and bootstrap behavior.
@@ -107,7 +111,7 @@ Broad-phase checks use wall bounding boxes, but candidate walls are still found 
 
 ### P2 — Worker work is coalesced, not cancellable
 
-Only the latest queued payload per token is retained, but an in-flight solve runs to its deadline. Rapid drags can therefore finish obsolete work before starting the newest target. Add a request-generation cancellation message or a `SharedArrayBuffer` flag only if profiling shows the time cap and wider reuse are insufficient.
+Only the latest queued payload per token is retained, but an in-flight solve runs to its deadline. Rapid drags can therefore finish obsolete work before starting the newest target. It no longer blocks a drag call: direct movement and valid corridor repairs complete synchronously, while unresolved movement fails closed. Add a request-generation cancellation message or a `SharedArrayBuffer` flag only if profiling shows obsolete Worker CPU use remains material.
 
 ### P2 — Open-path score updates duplicate heap entries
 
@@ -120,4 +124,43 @@ The Worker heap has no decrease-key operation and may contain repeated node IDs.
 - `npm test`
 - `git diff --check`
 
-Live Foundry validation remains necessary for the WASM core and UI timing. The highest-value manual matrix is: square plus every diagonal rule; all four hex offsets; gridless open/closed/locked doors; wall edits while dragging; first drag immediately after scene load; token starts tangent to or slightly overlapping a wall; and rapid 200+ px pointer sweeps.
+Live Foundry validation was performed for the gridless drag timing and local
+diagnostic writer. The broader manual matrix still required for the WASM core
+and edge-case coverage is: square plus every diagonal rule; all four hex
+offsets; gridless open/closed/locked doors; wall edits while dragging; first
+drag immediately after scene load; token starts tangent to or slightly
+overlapping a wall; and rapid 200+ px pointer sweeps.
+
+## 2026-09-09 latency and dead-zone follow-up
+
+The supplied trace set contained 110 fail-closed `worker_pending` movements. All stopped at the Worker wait stage; the median delay was 31 ms, p95 was 123 ms, and one request took 1213 ms. Forty returned Worker paths then failed current-geometry validation in repeated narrow wall areas.
+
+The dominant problem was scheduling and endpoint reuse, not a missing node-map cache. Both solvers already memoized walk masks and graphs by scene geometry, step, clearance, and corner guard. The corrective design therefore keeps those caches and changes the query path:
+
+1. prove direct legal motion synchronously and bypass A*;
+2. repair the previous valid corridor to nearby exact targets;
+3. run expensive searches asynchronously without awaiting them in a drag frame;
+4. transfer wall geometry to the Worker once per revision;
+5. validate every rounded cache hit after exact endpoint substitution.
+
+This is consistent with established navigation practice: preserve and locally adjust a valid corridor when the target moves, while retaining line-of-sight simplification and a complete search for cases that genuinely need it. It avoids introducing a second hierarchical graph or navmesh format before profiling demonstrates that the existing cached lattice itself is the bottleneck.
+
+After deployment, a live 200-request rolling sample measured 1.9 ms median,
+3.2 ms p90, 18.3 ms p95, and 21.1 ms maximum synchronous request time. Two
+later transitions into previously unsolved obstructed geometry produced runs of
+7 and 17 fail-closed `worker_pending` frames spanning about 172 ms and 389 ms;
+both recovered to verified paths. These are no longer main-thread stalls. They
+are first-result latency while an in-flight Worker finishes an older target.
+The Worker scheduler now applies that evidence: ordinary moving targets use the
+bounded ladder, and a complete refinement is queued only after the same target
+remains unresolved for 180 ms. Long routes still start with their complete
+castle-scale ladder. This reduces obsolete first-route work without lowering
+collision checks or showing an unverified straight fallback.
+
+Live testing also showed that successful corridor repair could remain active
+indefinitely, retaining each exact pointer position as another freehand segment.
+Corridor state now tracks cumulative repair distance and repair count. At the
+larger of 80 px or 2.5 node steps—or 16 small repairs—it requests a fresh node
+route in the background. The current verified corridor remains displayed until
+the fresh route passes wall-clearance and Foundry constraint validation, at
+which point it atomically replaces the freehand tail.

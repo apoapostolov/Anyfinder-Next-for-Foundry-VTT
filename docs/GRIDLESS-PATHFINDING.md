@@ -10,7 +10,7 @@ The normal execution path is asynchronous in `dist/anyfinder-gridless-worker.js`
 
 ### Blocking walls
 
-The main thread extracts wall endpoints and axis-aligned bounds. Walls whose movement sense is `NONE` are excluded. Open doors are excluded; closed and locked doors remain obstacles. Directional wall semantics are not represented in the gridless payload.
+The main thread extracts wall endpoints and axis-aligned bounds once per scene wall revision. Walls whose movement sense is `NONE` are excluded. Open doors are excluded; closed and locked doors remain obstacles. Directional wall semantics are not represented in the gridless payload. The serialized wall snapshot is sent to the Worker once per revision instead of being rebuilt and structured-cloned with every pointer update.
 
 ### Token clearance
 
@@ -71,7 +71,7 @@ The Worker uses a binary minimum heap and a closed byte mask. The synchronous fa
 
 ### 6. Simplify and validate
 
-The raw node chain is simplified by replacing runs of short edges with the longest collision-free segment. Exact requested endpoints are restored. The combined path is collision-validated before it is accepted by the main thread. Worker answers receive a second current-geometry validation at consumption time.
+The raw node chain is simplified by replacing runs of short edges with the longest collision-free segment. Exact requested endpoints are restored. The combined path is collision-validated before it is accepted by the main thread. Worker answers receive a second current-geometry validation at consumption time. Rounded segment-cache hits are also revalidated after substituting exact endpoints; an invalid connector evicts the entry and continues through a fresh search.
 
 ### 7. Retry with Alternate Resolutions
 
@@ -79,22 +79,23 @@ If a solve fails, the retry ladder changes node step, search-area margin, corner
 
 ## Interactive scheduling
 
-Each token has at most one in-flight Worker request. New drag targets replace the queued payload, so obsolete queued work is coalesced. Completed routes are accepted for up to five seconds and for target drift between 24 and 160 px, scaled by node step.
+The first stage is a synchronous fast path, not A*. The complete requested center polyline is checked against the cached wall geometry and then passed through Foundry's authoritative movement constraint. Open-space movement and short movement with no obstructing wall therefore return immediately without constructing, consulting, or waiting for a node graph.
 
-For a long route, or after the first synchronous bootstrap, the Foundry pathfinding job now remains pending while the matching Worker result is calculated. Cancellation follows Foundry's drag-search cancellation. This fixes the case where a successful Worker result arrived after Foundry had already accepted a native fallback and therefore was never displayed unless the pointer moved again.
+Each token has at most one in-flight Worker request. New drag targets replace the queued payload, so obsolete queued work is coalesced. A drag call never waits for the Worker: the previous implementation could pause a normal pointer frame for 1.2 seconds and a long route for 8 seconds. Ordinary routes use the bounded retry ladder while the pointer is moving; if the same target remains unresolved for 180 ms, a complete refinement is queued. Castle-scale routes retain the full ladder immediately. If no current route can be proved immediately, the call fails closed while the Worker continues in the background.
 
-Foundry renders the unresolved destination as a dashed, direct “unreachable” segment while a pathfinding promise is pending. Anyfinder wraps the protected token-ruler segment-style method and hides only that current-user unreachable segment while Anyfinder is enabled. The actual path, history, endpoint, and distance labels remain available.
+After any successful detour, Anyfinder retains its center-path corridor. For a nearby cursor target it first tries a safe suffix from the old endpoint. If that crosses a wall or violates clearance, it walks backward through the old bends until it finds the latest bend that can connect legally. The repaired route is fully collision-validated and constrained by Foundry before use. This gives nearby drag frames a current exact endpoint without another A* search and avoids the former dead zone where a stale Worker path acquired an illegal straight suffix.
 
-That wider window fixes the principal “straight line first / never gets the node path” defect. The former 1.5–4 px target tolerance was smaller than ordinary pointer movement between frames, so valid Worker answers were routinely thrown away.
+Corridor repair is intentionally temporary rather than an indefinitely growing freehand path. Anyfinder accumulates the actual cursor distance added by repairs. Once it reaches the larger of 80 px or 2.5 node steps, or after 16 very small repairs, it queues a fresh Worker route. The verified repaired corridor remains visible and usable while that search runs. A valid Worker answer then replaces the accumulated tail and resets the budget. At the default 40 px node spacing, rebasing begins after roughly 100 px of freehand drift.
 
-Wider reuse is protected by four gates:
+Foundry may render an unresolved destination as a dashed, direct “unreachable” segment. Anyfinder wraps the protected token-ruler segment-style method and hides only that current-user unreachable segment while Anyfinder is enabled. The actual path, history, endpoint, and distance labels remain available.
+
+Worker and corridor reuse are protected by five gates:
 
 1. start-point proximity;
 2. target-point proximity;
 3. exact scene ID, wall revision, token size, and solver-setting fingerprint;
-4. collision validation against current walls immediately before return.
-
-In addition, cached paths are returned only when their first and last points still match Foundry's requested origin and destination. This prevents a route calculated from a movement-history point, a stripped Worker origin, or a stale pointer position from being reused during later drag frames.
+4. collision validation against current walls immediately before return;
+5. Foundry's own movement constraint with exact requested endpoints.
 
 For the first request after invalidation, the main thread performs one bounded interactive solve per token while the Worker builds its graph. This avoids presenting a straight native route into a wall. Later frames return to Worker-first behavior; the bootstrap marker is cleared whenever geometry/settings or the canvas lifecycle invalidates routing state.
 
@@ -121,7 +122,7 @@ Endpoint exclusion acts as a protective zone around wall vertices, including ver
 
 ### Target moves while Worker solves
 
-The returned route is re-anchored to the current target. The final collision check rejects an unsafe new final segment. Very large target changes exceed the reuse window and wait for a newer solve.
+The returned route is treated as a corridor, not blindly re-anchored. Endpoint repair may keep the old endpoint, connect from an earlier bend, or reject the route. Very large target changes exceed the reuse window and use a newer solve. No pathfinding request waits on obsolete work.
 
 ### Scene or wall changes in flight
 
@@ -144,15 +145,17 @@ With **Record Diagnostics** enabled, every fail-closed return creates a complete
 - Worker request/result state, recent-failure cache state, and whether the last valid route matched the request;
 - the most recent rejected Worker or Foundry-constrained candidate.
 
-For the most recent prevented move, run `anxDebugGetLastBlockedMovement()` in the developer console. `anxDebugExplainLastFailure()` adds the per-attempt solver summary, while `anxDebugWriteSessionLog()` exports all retained traces.
+The primary artifact is the debounced rolling file `C:/FoundryData.14/Data/modules/anyfinder-next/storage/anyfinder-next-debug-latest.json`. It contains the retained gridless traces, failure digest, and cross-grid path captures, and is rewritten about 1.2 seconds after diagnostic activity stops. This keeps normal debugging filesystem-first and avoids DevTools/CDP collection. Only a GM client writes the file, and Foundry's persistent module storage keeps it across module updates. If the running Foundry server has not yet reloaded the module's `persistentStorage` manifest flag, the writer automatically uses `C:/FoundryData.14/Data/modules/anyfinder-next/debug/anyfinder-next-debug-latest.json` instead; the JSON records the actual path in `relativePath`.
+
+The console helpers remain available for focused inspection: `anxDebugGetLastBlockedMovement()`, `anxDebugExplainLastFailure()`, and `anxDebugWriteSessionLog()`. Full console trace emission occurs only when the diagnostic detail setting is **Full**.
 
 ## Optimization priorities
 
 1. Share one generated search core between Worker and main thread to eliminate semantic drift.
 2. Port the Worker's heap to the synchronous implementation.
-3. Extend the Worker's wall spatial hash to the synchronous bootstrap.
+3. Extend the Worker's wall spatial hash to the synchronous fast-path and bootstrap collision checks.
 4. Add local adaptive refinement near failed endpoints and narrow passages.
-5. Add generation-based cancellation if profiling shows obsolete in-flight work remains material.
+5. Add generation-based cancellation if stable-target scheduling does not sufficiently reduce obsolete Worker work.
 6. Replace full nearest-walkable scans for blocked endpoints with expanding lattice rings; this matters mainly at the 20,000-node ceiling.
 7. Consider an indexed heap only after spatial indexing and source unification.
 

@@ -28,8 +28,8 @@
             },
             "enableGridlessPathfinding": {
                 "name": "Enable Pathfinding on Gridless Maps",
-                "hint": "Uses Anyfinder Next pathfinding on maps without a grid. This is enabled by default, but gridless routing can have dead zones and may take up to half a second to calculate.",
-                "confirmation": "Gridless pathfinding can have dead zones and may take up to half a second to calculate a route. Drag quickly if you like, but wait for the pathfinding line to appear before releasing the token. If no route appears, move the token slightly so it can reach a nearby navigation node. Do you acknowledge these limitations?"
+                "hint": "When on, you and each player may encounter a short slowdown on first movement.",
+                "confirmation": "<p>When using Gridless Pathfinding, you and each player may encounter a short slowdown on the first movement. This happens once per scene or session, while calculating or loading a cached pathfinding map.</p><p>Gridless Pathfinding is not perfect. You may encounter areas that take longer to compute, and areas that only allow precise path drawing with mouse movement. If you encounter problems, wait and move the mouse a bit to find a better point to drop your token.</p>"
             },
             "gridlessNodeStepPx": {
                 "name": "Gridless Route Detail",

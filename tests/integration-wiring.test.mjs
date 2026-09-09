@@ -10,6 +10,9 @@ const bundle = readFileSync(
 const english = JSON.parse(
   readFileSync(new URL("../languages/en.json", import.meta.url), "utf8"),
 );
+const manifest = JSON.parse(
+  readFileSync(new URL("../module.json", import.meta.url), "utf8"),
+);
 
 test("normal Anyfinder source is preserved under ingest", () => {
   assert.ok(
@@ -32,7 +35,8 @@ test("gridless lifecycle invalidates geometry and rejects stale worker identity"
   assert.match(bundle, /Hooks\.on\("createWall"[\s\S]*?anxInvalidateGridlessCache\(\)/);
   assert.match(bundle, /Hooks\.on\("canvasTearDown"[\s\S]*?anxTerminateGridlessWorker\(\)/);
   assert.match(bundle, /E\.fingerprint !== C2\.fingerprint/);
-  assert.match(bundle, /Rejected worker path after current-geometry validation/);
+  assert.match(bundle, /Rejected worker path after safe endpoint repair/);
+  assert.match(bundle, /anxGridlessWorkerState\.geometryKey = null/);
 });
 
 test("main-thread walk graph prevents diagonal corner cutting", () => {
@@ -45,9 +49,16 @@ test("first worker request gets a bounded synchronous bootstrap path", () => {
   assert.match(bundle, /__anxInteractiveFast: r2 \|\| bootstrapGridlessPath/);
 });
 
-test("long worker routes remain pending and Foundry's direct dashed segment is hidden", () => {
-  assert.match(bundle, /function anxWaitForGridlessWorkerPath/);
-  assert.match(bundle, /longRoute \? 8e3 : 1200/);
+test("worker searches never block drag frames and Foundry's direct dashed segment is hidden", () => {
+  const findPathStart = bundle.indexOf("async function anxFindPathWithFallback");
+  const gridlessStart = bundle.indexOf("if (anxIsStrictGridlessScene())", findPathStart);
+  const gridlessEnd = bundle.indexOf("if (!canvas.anyfinder)", gridlessStart);
+  const gridlessBranch = bundle.slice(gridlessStart, gridlessEnd);
+  assert.doesNotMatch(gridlessBranch, /await anxWaitForGridlessWorkerPath/);
+  assert.match(bundle, /ANX_GRIDLESS_WORKER_REFINE_DELAY_MS = 180/);
+  assert.match(bundle, /anxScheduleGridlessWorkerRefinement\(I, A\)/);
+  assert.match(bundle, /__anxInteractiveFast: !longRoute/);
+  assert.match(bundle, /latestPayloadByToken\.set\(I, \{ \.\.\.A, interactiveFast: !1 \}\)/);
   assert.match(bundle, /CONFIG\.Token\.rulerClass\.prototype\._getSegmentStyle/);
   assert.match(bundle, /A\?\.unreachable/);
 });
@@ -67,7 +78,8 @@ test("gridless pathfinding is enabled by default and requires GM acknowledgement
 
 test("returned gridless paths validate the implicit start connector", () => {
   assert.match(bundle, /function anxIsSafeGridlessStartEgress/);
-  assert.match(bundle, /anxValidatePathCollisionFromStart\(O, A/);
+  assert.match(bundle, /function anxValidateGridlessCenterPath/);
+  assert.match(bundle, /anxValidatePathCollisionFromStart\(I, A/);
   assert.match(bundle, /startConnectorBlocked/);
 });
 
@@ -129,10 +141,104 @@ test("gridless routing converts Foundry token positions to movement origins and 
 test("gridless routes obey Foundry's required first-waypoint contract", () => {
   assert.match(bundle, /iStart = centerWaypoints\.length > 0 \? centerWaypoints\[0\]/);
   assert.match(bundle, /centerDestinations = centerWaypoints\.slice\(1\)/);
-  assert.match(bundle, /B\.unshift\(C\)/);
+  assert.match(bundle, /return B\.unshift\(g\), B/);
   assert.match(bundle, /C\[0\] = \{ \.\.\.C2\[0\] \}/);
-  assert.match(bundle, /anxFoundryPathMatchesRequestedEndpoints\(v2\.path, A\)/);
+  assert.match(bundle, /centerPath: anxClonePointPath\(J2\)/);
+  assert.match(bundle, /anxTryRetargetGridlessCenterPath\(v2\.centerPath/);
   assert.match(bundle, /__anxStart: iStart/);
+});
+
+test("gridless open-space movement bypasses search and cached corridors are repaired safely", () => {
+  assert.match(bundle, /direct_fast_path/);
+  assert.match(bundle, /function anxPrepareVerifiedGridlessCenterPath/);
+  assert.match(bundle, /function anxTryRetargetGridlessCenterPath/);
+  assert.match(bundle, /anxValidateGridlessCenterPath\(D, A, B\)/);
+  assert.match(bundle, /segment_path_rejected/);
+});
+
+test("corridor repair walks back to a safe bend instead of appending an illegal suffix", () => {
+  const retargetStart = bundle.indexOf("function anxValidateGridlessCenterPath");
+  const retargetEnd = bundle.indexOf("function anxClonePointPath", retargetStart);
+  const ensureStart = bundle.indexOf("function anxEnsureGridlessCenterPathStartsAt");
+  const ensureEnd = bundle.indexOf("function anxFoundryPathMatchesRequestedEndpoints", ensureStart);
+  assert.ok(retargetStart >= 0 && retargetEnd > retargetStart, "expected gridless corridor repair helpers");
+  assert.ok(ensureStart >= 0 && ensureEnd > ensureStart, "expected gridless start helper");
+  const wallX = 50;
+  const context = vm.createContext({
+    canvas: { dimensions: { sceneRect: { x: 0, y: 0, width: 200, height: 200 } } },
+    anxClonePointPath: (path) => path.map((point) => ({ x: point.x, y: point.y })),
+    anxDistanceSquared: (a, b) => ((a.x - b.x) ** 2) + ((a.y - b.y) ** 2),
+    anxGetBlockingWallSegments: () => [],
+    anxValidatePathCollisionFromStart: (path) => {
+      let blockedSegmentIndex = -1;
+      for (let index = 0; index < path.length - 1; index++) {
+        const a = path[index];
+        const b = path[index + 1];
+        if ((a.x < wallX && b.x > wallX) || (a.x > wallX && b.x < wallX)) {
+          const y = a.y + ((wallX - a.x) / (b.x - a.x)) * (b.y - a.y);
+          if (y >= 0 && y <= 100) {
+            blockedSegmentIndex = index;
+            break;
+          }
+        }
+      }
+      return { blockedPointIndex: -1, blockedSegmentIndex, startConnectorBlocked: false };
+    },
+  });
+  vm.runInContext(`${bundle.slice(ensureStart, ensureEnd)}\n${bundle.slice(retargetStart, retargetEnd)}\nthis.retarget = anxTryRetargetGridlessCenterPath;`, context);
+  const cached = [
+    { x: 10, y: 50 },
+    { x: 40, y: 110 },
+    { x: 100, y: 110 },
+    { x: 100, y: 50 },
+  ];
+  const repaired = context.retarget(
+    cached,
+    { x: 10, y: 50 },
+    { x: 40, y: 50 },
+    { clearance: 0, cornerGuard: 0 },
+  );
+
+  assert.deepEqual(repaired.map(({ x, y }) => ({ x, y })), [
+    { x: 10, y: 50 },
+    { x: 40, y: 110 },
+    { x: 40, y: 50 },
+  ]);
+});
+
+test("corridor repair rebases after bounded freehand drift", () => {
+  const start = bundle.indexOf("function anxAdvanceGridlessCorridorState");
+  const end = bundle.indexOf("function anxPrepareVerifiedGridlessCenterPath", start);
+  assert.ok(start >= 0 && end > start, "expected corridor rebase helper");
+  const context = vm.createContext({
+    ANX_GRIDLESS_CORRIDOR_REBASE_MIN_DISTANCE_PX: 80,
+    ANX_GRIDLESS_CORRIDOR_REBASE_MAX_REPAIRS: 16,
+  });
+  vm.runInContext(`${bundle.slice(start, end)}\nthis.advance = anxAdvanceGridlessCorridorState;`, context);
+  let state = { target: { x: 0, y: 0 }, repairDistancePx: 0, repairCount: 0, rebasePending: false };
+  for (const x of [30, 60, 90]) {
+    state = { ...context.advance(state, { x, y: 0 }, 40), target: { x, y: 0 } };
+  }
+  assert.equal(state.repairDistancePx, 90);
+  assert.equal(state.rebasePending, false);
+  state = { ...context.advance(state, { x: 120, y: 0 }, 40), target: { x: 120, y: 0 } };
+  assert.equal(state.repairDistancePx, 120);
+  assert.equal(state.rebasePending, true);
+  assert.match(bundle, /worker_corridor_rebase/);
+  assert.match(bundle, /source: K2,/);
+  assert.match(bundle, /K2 !== "drag_corridor_repair" && anxCancelGridlessWorkerRefinement\(n2\)/);
+  assert.match(bundle, /return commitGridlessSuccess\(K2, q2, "drag_corridor_repair", null, corridorState\)/);
+});
+
+test("debug diagnostics use a debounced persistent local file", () => {
+  assert.match(bundle, /ANX_DEBUG_LOG_FILENAME = "anyfinder-next-debug-latest\.json"/);
+  assert.match(bundle, /ANX_DEBUG_LOG_DEBOUNCE_MS = 1200/);
+  assert.match(bundle, /fp\.uploadPersistent\(ANX_MODULE_ID/);
+  assert.match(bundle, /fp\.upload\("data", `modules\/\$\{ANX_MODULE_ID\}\/debug`/);
+  assert.match(bundle, /makeFile\(fallbackPath\)/);
+  assert.match(bundle, /failureDigest: anxCloneTrace/);
+  assert.match(bundle, /gridlessTraces: anxCloneTrace/);
+  assert.equal(manifest.persistentStorage, true);
 });
 
 test("gridless failures fail closed at the exact requested origin", () => {

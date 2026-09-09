@@ -3,6 +3,7 @@ const MAX_STEP = 160;
 const DEFAULT_WALL_OVERLAP_PERCENT = 20;
 const SCENE_STEP_CACHE_MAX = 12;
 const sceneStepCache = new Map();
+let activeGeometry = null;
 
 class MinHeap {
   constructor() {
@@ -578,7 +579,23 @@ function solveSegment(payload, data, from0, to0, opt) {
     const copy = cached.map((p) => ({ x: p.x, y: p.y }));
     copy[0] = { x: from0.x, y: from0.y };
     copy[copy.length - 1] = { x: to0.x, y: to0.y };
-    return { path: copy, reason: null };
+    const pointsValid = copy.every(
+      (point) => !pointBlocked(point, data.walls, clearance, data.sceneRect, endpointGuard, exactTol),
+    );
+    const edgesValid = pointsValid && copy.every(
+      (point, index) => index === copy.length - 1 || !edgeBlocked(
+        point,
+        copy[index + 1],
+        ec,
+        clearance,
+        data.walls,
+        data.sceneRect,
+        endpointGuard,
+        exactTol,
+      ),
+    );
+    if (edgesValid) return { path: copy, reason: null };
+    data.segmentPathCache.delete(ck);
   }
   const startAttach = nearestCandidates(
     graph.mask,
@@ -999,12 +1016,34 @@ function solve(payload) {
 
 self.onmessage = (event) => {
   const msg = event.data;
-  if (!msg || msg.type !== "solve") return;
+  if (!msg) return;
+  if (msg.type === "set_geometry") {
+    const scene = msg.scene;
+    if (!scene || !Array.isArray(scene.walls)) return;
+    activeGeometry = {
+      sceneId: scene.sceneId ?? null,
+      wallRevision: Number(scene.wallRevision),
+      rect: scene.rect,
+      walls: scene.walls,
+    };
+    sceneStepCache.clear();
+    return;
+  }
+  if (msg.type !== "solve") return;
   const requestId = msg.requestId;
   const tokenId = String(msg.tokenId || "");
-  const payload = msg.payload;
+  const incoming = msg.payload;
+  const incomingScene = incoming?.scene;
+  const geometryMatches = activeGeometry
+    && activeGeometry.sceneId === (incomingScene?.sceneId ?? null)
+    && activeGeometry.wallRevision === Number(incomingScene?.wallRevision);
+  const walls = Array.isArray(incomingScene?.walls)
+    ? incomingScene.walls
+    : geometryMatches ? activeGeometry.walls : null;
+  const payload = walls ? { ...incoming, scene: { ...incomingScene, walls } } : incoming;
   let result;
   try {
+    if (!Array.isArray(payload?.scene?.walls)) throw new Error("worker_geometry_missing");
     result = solve(payload);
   } catch (err) {
     self.postMessage({
