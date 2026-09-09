@@ -6,4 +6,4 @@
 - Focused gridless worker and integration tests passed.
 - Confirmed the live copy is under `C:/FoundryData.14/Data/modules/anyfinder-next`.
 - No Git remote is configured for this checkout, so push is pending a remote.
-- Commit: `a888d10` (`feat-polish-gridless-routing`), target `main`.
+- Commit: `515c488` (`feat-polish-gridless-routing`), target `main`.
