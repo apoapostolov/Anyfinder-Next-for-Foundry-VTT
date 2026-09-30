@@ -1,26 +1,23 @@
 # Anyfinder Next for Foundry VTT
 
-System-agnostic, wall-aware token pathfinding for Foundry VTT v14.
+*Drag a token toward its destination and let it find a route around the walls.*
+
+Anyfinder Next plans movement through square, hex, and gridless scenes while
+you drag. It checks a proposed route against Foundry's movement rules before
+the token moves, so an unfinished calculation does not become an accidental
+trip through a wall. It works across game systems on Foundry VTT v14.
 
 [![Foundry v14](https://img.shields.io/badge/Foundry-v14-green)](https://foundryvtt.com/)
 [![Module Version](https://img.shields.io/badge/version-14.0.6-blue)](./module.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE.md)
-[![Manifest](https://img.shields.io/badge/Manifest-module.json-orange)](https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT/releases/latest/download/module.json)
 [![Issues](https://img.shields.io/github/issues/apoapostolov/Anyfinder-Next-for-Foundry-VTT)](https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT/issues)
 
-Anyfinder Next finds wall-aware movement paths while a token is dragged. It
-supports square, hex, and gridless scenes, uses Foundry v14 movement origins,
-and validates generated paths through Foundry before allowing a token to move.
-
-## What's New in 14.0.6
+## In 14.0.6
 
 - Gridless pathfinding is enabled by default after a GM acknowledgement.
-- Gridless routing explains dead zones and the possible calculation delay.
-- Tight-passage overlap uses a conservative 10% default instead of a fixed
-  60%-passage assumption.
-- The wall-overlap allowance is configurable from Game Settings with a slider.
-- Worker, cache, origin, endpoint, and Foundry collision validation are covered
-  by regression tests.
+- Gridless routing warns the GM that complex maps may take a moment to solve.
+- The GM can tune how closely tokens squeeze past a wall; the default is a
+  conservative 10% overlap allowance.
 
 See the full [changelog](./CHANGELOG.md).
 
@@ -28,17 +25,15 @@ See the full [changelog](./CHANGELOG.md).
 
 - **Route around walls.** Find practical movement paths through square and hex
   scenes using Foundry's wall and region constraints.
-- **Use gridless maps.** Generate graph-backed routes with adaptive resolution,
-  Worker calculations, and a fail-closed result while a verified path is not
-  ready.
+- **Use gridless maps.** A route appears when the module finds one it can
+  verify. Until then, dropping the token does not send it through a barrier.
 - **Tune tight passages.** Allow a configurable percentage of token width to
   overlap wall clearance while keeping the token center and vision centerline
   on the legal side of walls.
 - **Respect fog.** Restrict pathfinding to areas explored by the current user
   when the setting is enabled.
-- **Diagnose blocked movement.** Capture route stages, relevant walls, cache
-  state, Worker status, and the last rejected candidate from the browser
-  console.
+- **Understand a blocked move.** Optional diagnostics explain why a route
+  could not be used; the console helpers below give developers more detail.
 
 ## Quick Start
 
@@ -78,14 +73,9 @@ final collision validation, or was changed by Foundry.
 
 ## Installation
 
-In Foundry's **Configuration and Setup**, open **Add-on Modules**, choose
-**Install Module**, and paste:
-
-```text
-https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT/releases/latest/download/module.json
-```
-
-For a source install, clone the repository to `Data/modules/anyfinder-next`.
+There is no published GitHub Release or manifest download for this repository
+yet. For a source install, clone the repository to
+`Data/modules/anyfinder-next`, then enable the module in your world.
 Do not enable it alongside the original Anyfinder module.
 
 ## Compatibility

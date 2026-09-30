@@ -1,74 +1,40 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/)
-and this project adheres to [Semantic Versioning](https://semver.org/).
+This is the source tree's development history. The repository has no published
+GitHub Release yet, so the versions below are not evidence that users could
+install each intermediate build.
 
 ## [Unreleased]
 
-### Changed
+### Improved
 
-- Gridless dragging now keeps its responsive freehand corridor only for a
-  bounded distance, then replaces the accumulated tail with a freshly verified
-  node route without hiding the current valid path.
-
-### Fixed
-
-- Removed the Worker waits and repeated wall-geometry transfers that caused
-  sub-second gridless drag pauses and dead zones around obstructed targets.
-- Prevented safely repaired gridless corridors from accumulating pointer
-  positions indefinitely as a freehand polyline.
+- Gridless dragging stays responsive on longer moves and around blocked
+  destinations. The path settles into a verified route instead of growing an
+  endless trail of pointer positions.
 
 ## [14.0.6] - 2026-09-09
 
-Anyfinder Next for Foundry VTT v14. Gridless routing, conservative
-tight-passage tuning, and Foundry-verified movement validation.
+The current source build adds gridless routing and safer movement checks for
+Foundry VTT v14.
 
 ### Added
 
-- Added a Foundry-standard README with installation, settings, diagnostics,
-  compatibility, and development sections.
-- Added a configurable tight-passage wall-overlap slider.
-- Added default-on gridless pathfinding with a GM acknowledgement dialog.
+- Gridless pathfinding is available after a GM acknowledges that large or
+  complex scenes may take longer to calculate.
+- A setting lets the GM tune how closely tokens can pass walls.
 
 ### Changed
 
-- Reduced the default tight-passage overlap to a conservative 10% of token
-  width instead of relying on a fixed 60%-passage assumption.
-- Grouped Anyfinder settings under logical H3 sections.
+- The default tight-passage allowance is now 10% of token width.
 
-### Fixed
+### Improved
 
-- Expanded fail-closed gridless diagnostics with rejection stage/classification, readable reason, direct-route collision details, relevant wall IDs and geometry, token clearance, Worker state, cache state, and the last rejected candidate.
-- Added `anxDebugGetLastBlockedMovement()` and included rejection details in failure digests and `anxDebugExplainLastFailure()` output.
-- Made gridless pathfinding fail closed: while no verified route exists, Anyfinder now returns only the exact origin and prevents release from moving the token into the first wall.
-- Removed the remaining gridless fallbacks to Foundry's partial straight-line constraint result during Worker waits, cached failures, solver failures, and exceptions.
-- Refused cached gridless routes whose destination no longer matches the current pointer, preventing release onto a stale partial route.
-- Restored Foundry v14's required first-waypoint contract for gridless paths: Worker, synchronous, and cached routes now remain anchored to the exact token drag origin.
-- Stopped using movement history as the gridless solver origin and stopped stripping the origin from completed Worker routes.
-- Corrected gridless coordinate handling so Foundry token positions are converted to movement origins before routing and generated nodes are converted back before movement.
-- Added an authoritative final safety gate through Foundry's own movement constraint; a route Foundry would shorten or alter is now rejected instead of leaving the token at a collision point.
-- Kept hard wall corners protected by endpoint exclusion during node search and final segment validation, with a regression fixture for joined right-angle walls.
-- Retired the ineffective minimum-clearance pixel rule from routing and hid its legacy setting.
-- Migrated normal Anyfinder's v14 lifecycle, option-normalization, and fast-drag Worker tolerance fixes.
-- Corrected the five-argument v14 WASM pathfinding call and restored cancellation.
-- Invalidated gridless graphs and Worker results on wall, scene, and clearance-setting changes.
-- Rejected stale Worker answers using scene/settings fingerprints and current-wall collision checks.
-- Added one bounded first-request bootstrap solve to avoid an initial straight route while the Worker is cold.
-- Validated the implicit start connector and permit only same-side, clearance-increasing egress for wall-adjacent starts.
-- Prevented main-thread diagonal corner cutting and removed duplicate undirected graph-edge checks.
-- Enforced Worker time limits that were previously declared but unused.
-- Hid Foundry's temporary direct dashed segment while Anyfinder is calculating the real route.
-- Kept long gridless searches pending until their matching Worker result arrives instead of losing successful late results to a native fallback.
-- Added route-focused search windows, spatial wall indexing, fine-resolution retries, and larger off-thread budgets for large complex maps.
-- Reworked squeeze clearance as a token-relative 60%-diameter rule, enabled it by default, and added final Worker collision validation so token centers cannot cross walls.
-
-### Added
-
-- Preserved the installed normal Anyfinder v14 module under `ingest/anyfinder` for comparison.
-- Added gridless Worker and integration regression tests.
-- Added a complete pathfinding audit and gridless node/A* design study.
+- A token waits for a verified path before it moves. Stale routes, incomplete
+  calculations, and paths Foundry would shorten are rejected.
+- Routes stay anchored to the place the token was picked up, including on
+  gridless scenes and near wall corners.
+- Gridless searches cope better with large maps and report why a blocked move
+  could not be completed when diagnostics are enabled.
 
 ## [14.0.1] - 2026-05-12
 
