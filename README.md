@@ -1,16 +1,24 @@
-# Anyfinder Next for Foundry VTT
+<div align="center">
 
-*Drag a token toward its destination and let it find a route around the walls.*
+  <h1>Anyfinder Next for Foundry VTT</h1>
+
+  <p>Drag a token toward its destination and let it find a route around the walls.</p>
+
+  <p>
+    <a href="https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT"><img src="https://img.shields.io/badge/Type-Foundry%20module-555" alt="Type: Foundry module"></a>
+    <a href="https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT"><img src="https://img.shields.io/badge/Language-JavaScript-555" alt="Primary language: JavaScript"></a>
+    <a href="https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT/releases"><img src="https://img.shields.io/badge/Status-Unreleased-555" alt="Unreleased"></a>
+    <a href="./LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-555" alt="License: MIT"></a>
+  </p>
+
+</div>
+
 
 Anyfinder Next plans movement through square, hex, and gridless scenes while
 you drag. It checks a proposed route against Foundry's movement rules before
 the token moves, so an unfinished calculation does not become an accidental
 trip through a wall. It works across game systems on Foundry VTT v14.
 
-[![Foundry v14](https://img.shields.io/badge/Foundry-v14-green)](https://foundryvtt.com/)
-[![Module Version](https://img.shields.io/badge/version-14.0.6-blue)](./module.json)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE.md)
-[![Issues](https://img.shields.io/github/issues/apoapostolov/Anyfinder-Next-for-Foundry-VTT)](https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT/issues)
 
 ## In 14.0.6
 
