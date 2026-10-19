@@ -1118,7 +1118,7 @@ fn(pn), $(), Hooks.once("init", () => {
         canvas.fog?.addEventListener("explored", function() {
                 canvas.anyfinder?.updateFog();
         });
-}), Hooks.on("renderSettingsConfig", (html) => {
+}), Hooks.on("renderSettingsConfig", (app, html) => {
         anxRenderSettingsSections(html);
 }), Hooks.on("getSceneControlButtons", (e) => {
         if (!e.tokens?.tools)
