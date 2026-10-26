@@ -153,3 +153,10 @@
   `main`; already present on `origin/main` when the final commit gate ran.
 - Verification-log commit: `aed2e1af81b6daceb4a58063ba395516c7eee0f7`
   (`docs-record-gridless-routing-verification`), target `main`.
+
+## 2026-09-30 â€” Center README header
+
+- Files changed: README.md.
+- Applied the shared centered title, outcome-first subtitle, and compact badge row; preserved existing product art and body content.
+- Verified the published release/version/date source and available license metadata; git diff --check passed before commit.
+- Commit: `c0e215e7ac8167906384a2acb1b8e2a804ba2d89` (`docs: center README header`), target `https://github.com/apoapostolov/Anyfinder-Next-for-Foundry-VTT.git` branch `origin/main`.
